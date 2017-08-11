@@ -1,0 +1,73 @@
+jobs:
+    
+- name: prepare-infrastructure-bbr
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [teardown-infrastructure]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [teardown-infrastructure]
+      trigger: true
+    - get: iaas-tf-source
+    - get: opsmanager-tile
+      passed: [deployment-trigger]
+      params:
+        globs:
+          - "<%= opsmanager_glob %>"
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+    - task: generate-tf-vars-file
+    - task: override-tf
+    - put: iaas-tf-state
+      params:
+        env_name: {{env_name_fixed}}
+        delete_on_failure: false
+        var_file: tf-vars-dir/tf_vars.yml
+      get_params:
+        output_module: terraforming
+
+- name: update-credentials-bbr
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [prepare-infrastructure-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [prepare-infrastructure-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+  - do:
+    - task: set-status-to-in-progress
+    - task: update-dns-records
+    - task: update-dynamic-credentials-with-tf-output
+    - put: lp-dynamic-creds
+      params:
+        file: env-credentials/creds.yml
+        content_type: text/plain
+
+- name: update-lastpass-opsman-credentials-bbr
+  plan:
+    - get: env-lock
+      passed: [update-credentials-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [update-credentials-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+      passed: [update-credentials-bbr]
+      trigger: true
+    - task: generate-lpass-opsman-credentials-file
+    - put: opsman-lpass-site
+      params:
+        overwrite_when_existing: true
+        website_credentials: lpass-opsman-credentials-file/creds.yml
+

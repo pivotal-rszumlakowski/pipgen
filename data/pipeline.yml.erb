@@ -1,0 +1,1864 @@
+---
+
+<%
+  require "digest/sha1"
+  require "pathname"
+  require "ostruct"
+  require "erb"
+  require "yaml"
+  require "json"
+  require "set"
+
+  yml_configuration = YAML.load(File.read(environment_config_yml))
+
+  ###############################
+
+  if yml_configuration[iaas][env_name]['user_provided_tiles']
+    tiles = yml_configuration[iaas][env_name]['user_provided_tiles']
+  else
+    if yml_configuration[iaas][env_name]['empty_tiles']
+      tiles = []
+    else
+      tiles = yml_configuration['tiles'][opsmanager_version]
+
+      if yml_configuration[iaas][env_name]['tiles']
+        yml_configuration[iaas][env_name]['tiles'].each do |override_tile|
+          tiles.map! do |common_tile|
+            common_tile['slug'] == override_tile['slug'] ? override_tile : common_tile
+          end
+        end
+      end
+
+      if yml_configuration[iaas][env_name]['excluded_tiles']
+        yml_configuration[iaas][env_name]['excluded_tiles'].each do |tile_to_exclude|
+          tiles.reject! { |t| [tile_to_exclude["slug"]].include? t["slug"] }
+        end
+      end
+    end
+  end
+
+  if yml_configuration[iaas][env_name]['user_provided_addons']
+    addons = yml_configuration[iaas][env_name]['user_provided_addons']
+  else
+    if yml_configuration[iaas][env_name]['empty_addons']
+      addons = []
+    else
+      addons = yml_configuration['addons']
+
+      if yml_configuration[iaas][env_name]['addons']
+        yml_configuration[iaas][env_name]['addons'].each do |override_addon|
+          addons.map! do |common_addon|
+            common_addon['slug'] == override_addon['slug'] ? override_addon : common_addon
+          end
+        end
+      end
+
+      if yml_configuration[iaas][env_name]['excluded_addons']
+        yml_configuration[iaas][env_name]['excluded_addons'].each do |addon_to_exclude|
+          addons.reject! { |t| [addon_to_exclude["slug"]].include? t["slug"] }
+        end
+      end
+    end
+  end
+
+  ###############################
+
+  is_clean_pipeline = false
+  is_base_pipeline = false
+  is_target_pipeline = false
+
+  case pipeline_mode
+  when 'CLEAN'
+    is_clean_pipeline = true
+  when 'BASE'
+    is_base_pipeline = true
+  when 'TARGET'
+    is_target_pipeline = true
+  end
+
+  opsmanager_glob = ''
+
+  case iaas
+    when 'aws'
+      opsmanager_glob = '*AWS*.y*ml'
+    when 'gcp'
+      opsmanager_glob = '*GCP*.y*ml'
+    when 'azure'
+      opsmanager_glob = '*Azure*.y*ml'
+  end
+
+  @iaas = iaas
+
+  def random_string
+    (0...8).map { (65 + rand(26)).chr }.join
+  end
+
+  $temp_dir = temp_dir
+  def template_task(task_template_file, extra_vars={})
+    template_content = File.read(task_template_file).gsub(/---/,"\n")
+    rendered_task = ERB.new(template_content).result(OpenStruct.new(extra_vars).instance_eval{binding})
+    rendered_task_file = File.new(File.join($temp_dir, "#{Pathname.new(task_template_file).basename}-#{random_string}"), "w")
+    rendered_task_file.puts(rendered_task)
+    rendered_task_file.close
+    File.absolute_path(rendered_task_file)
+  end
+
+  $tasks_dir_relative = tasks_dir_relative
+  def render_task(task_template_filename, extra_vars={})
+    rendered_string = render_template(task_template_filename, extra_vars)
+    rendered_string.gsub(/^(.*)/, '               \1')
+  end
+
+  def render_template(template_filename, extra_vars={})
+    source_task_filepath = File.join($tasks_dir_relative, 'templates', template_filename)
+    rendered_string = File.read(template_task(source_task_filepath, extra_vars))
+  end
+
+  tile_task_paths={}
+  if tiles
+    tiles.each do |tile|
+      tile_task_paths[tile['slug']] ||= {}
+      tile_task_paths[tile['slug']]['configure_product_task_path'] =
+         {
+           "tile" => tile,
+           "iaas" => iaas,
+         }
+    end
+  else
+    tiles = {}
+  end
+
+  # Scantron doesn't work on PCF <= 1.9
+  is_scantron_enabled = yml_configuration[iaas][env_name]['opsmanager_version'] != "1.9"
+%>
+
+
+#-------------------------------
+# Resources
+#-------------------------------
+resources:
+
+#
+# PCF A1
+#
+- name: master-pipeline-git
+  type: git
+  source:
+    uri: git@github.com:pivotal-cf/master-pipeline.git
+    branch: bbr2
+    private_key: {{master-pipeline-git-key}}
+
+#
+# OpsManager Tile
+#
+- name: opsmanager-tile
+  type: pivnet
+  source:
+    api_token: {{pivnet_api_token}}
+    region: us-east-2
+    product_slug: ops-manager
+    product_version: {{opsmanager_version_regex}}
+
+#
+# Env Lock
+#
+- name: env-lock
+  type: pool
+  source:
+    uri: git@github.com:pivotal-cf/master-pipeline-locks.git
+    branch: master
+    pool: <%= env_name_fixed %>
+    private_key: {{master-pipeline-git-key}}
+
+#
+# Env Lock Upgrade
+#
+<% if not is_clean_pipeline %>
+- name: env-lock-target
+  type: pool
+  source:
+    uri: git@github.com:pivotal-cf/master-pipeline-locks.git
+    branch: master
+    pool: <%= env_name_fixed %>-target
+    private_key: {{master-pipeline-git-key}}
+<% end %>
+
+#
+# Build results / history
+#
+- name: build-reports
+  type: s3
+  source:
+    access_key_id: {{aws_access_key_id}}
+    secret_access_key: {{aws_secret_access_key}}
+    bucket: {{installation_reports_bucket_name}}
+    region_name: {{aws_default_region}}
+    private: true
+    regexp: <%= env_name_fixed %>/report_(.*).yml
+
+- name: latest-base-report
+  type: s3
+  source:
+    access_key_id: {{aws_access_key_id}}
+    secret_access_key: {{aws_secret_access_key}}
+    bucket: {{installation_reports_bucket_name}}
+    region_name: {{aws_default_region}}
+    private: true
+    versioned_file: <%= env_name_fixed %>/report_0.yml
+
+- name: lp-dynamic-creds
+  type: s3
+  source:
+    access_key_id: {{aws_access_key_id}}
+    secret_access_key: {{aws_secret_access_key}}
+    bucket: dynamic-credentials
+    region_name: {{aws_default_region}}
+    private: true
+    versioned_file: <%= env_name_fixed %>/note_content
+
+- name: failure-logs
+  type: gcs-resource
+  source:
+    bucket: failure-logs
+    json_key: {{gcp_service_account_key}}
+    regexp: <%= env_name_fixed %>/logs_(.*).zip
+
+<% if is_scantron_enabled %>
+- name: scantron-reports
+  type: gcs-resource
+  source:
+    bucket: {{scantron_reports_bucket_name}}
+    json_key: {{scantron_gcp_service_account_key}}
+    regexp: <%= env_name_fixed %>/scantron_report.db
+<% end %>
+
+- name: slack-master-pipeline-diag
+  type: slack-notification
+  source:
+    url: {{slack-master-pipeline-diag-slack-hook-url}}
+
+- name: slack-master-pipeline-failure-report
+  type: slack-notification
+  source:
+    url: {{slack-master-pipeline-live-slack-hook-url}}
+
+- name: slack-master-pipeline-passed-report
+  type: slack-notification
+  source:
+    url: {{slack-master-pipeline-live-passed-slack-hook-url}}
+#
+# S3 Installation Settings Resource
+#
+- name: installation-settings
+  type: s3
+  source:
+    access_key_id: {{aws_access_key_id}}
+    secret_access_key: {{aws_secret_access_key}}
+    bucket: {{installation-settings-bucket-name}}
+    region_name: {{aws_default_region}}
+    private: true
+    versioned_file: <%= env_name_fixed %>/installation.zip
+
+#
+# S3 Installation Settings Resource
+#
+- name: bbr-backups
+  type: s3
+  source:
+    access_key_id: {{aws_access_key_id}}
+    secret_access_key: {{aws_secret_access_key}}
+    bucket: {{bbr-backups-bucket-name}}
+    region_name: {{aws_default_region}}
+    private: true
+    regexp: <%= env_name_fixed %>/(.*).tar
+#
+# Trigger base pipeline from upgrade pipeline
+#
+
+<% if  not is_clean_pipeline %>
+- name: upgrade-trigger
+  type: s3
+  source:
+    access_key_id: {{aws_access_key_id}}
+    secret_access_key: {{aws_secret_access_key}}
+    bucket: {{upgrade-trigger-bucket-name}}
+    region_name: {{aws_default_region}}
+    private: true
+    versioned_file: <%= env_name_fixed %>/upgrade_trigger.txt
+<% end %>
+
+#
+# Non-OpsManager Tiles
+#
+<% tiles.each do |tile| %>
+- name: <%= tile['slug'] %>
+  type: pivnet
+  source:
+    region: us-east-2
+    api_token: {{pivnet_api_token}}
+    product_slug: <%= tile['slug'] %>
+    product_version: <%= tile['version'] %>
+<% end %>
+
+#
+# Addons
+#
+<% addons.each do |addon| %>
+- name: <%= addon['slug'] %>
+  type: pivnet
+  source:
+    region: us-east-2
+    api_token: {{pivnet_api_token}}
+    product_slug: <%= addon['slug'] %>
+    product_version: <%= addon['version'] %>
+<% end %>
+
+
+#
+# lastpass Resource
+#
+<% if not is_target_pipeline %>
+- name: opsman-lpass-site
+  type: lastpass-resource
+  source:
+    username: {{lastpass_username}}
+    password: {{lastpass_password}}
+    folder: {{opsman_creds_folder}}
+    note: {{env_name_fixed}}
+    retry_interval: 30
+    type: "site"
+<% end %>
+
+#
+# bbr release file resource
+#
+- name: bbr-release
+  type: github-release
+  source:
+    owner: cloudfoundry-incubator
+    repository: bosh-backup-and-restore
+    access_token: {{iaas-enablement-ci-bot-access-token}}
+
+#
+# Terraform resource for everything infrastructure related
+#
+- name: iaas-tf-state
+  type: terraform
+  source:
+    storage:
+      bucket: pcf-master-terraform-state
+      bucket_path: <%= @iaas %>/<%= env_name_fixed %>
+      access_key_id: {{aws_access_key_id}}
+      secret_access_key: {{aws_secret_access_key}}
+    # the '//' indicates a sub-directory in a git repo
+    terraform_source: master-pipeline-git/terraform/<%= @iaas %>
+    vars:
+      # common entries
+      env_name: {{env_name_fixed}}
+      env_name_alphanumeric: <%= env_name_fixed.gsub(/[^A-z,.]/, "")%>
+      dns_suffix: {{deployment_domain}}
+      system_domain: sys.<%= env_name_fixed %>.<%= deployment_domain %>
+      jumpbox_username: replaced_by_var
+      jumpbox_password: replaced_by_var
+      jumpbox_pub_key: replaced_by_var
+      jumpbox_priv_key: replaced_by_var
+      aws_access_key: {{aws_access_key_id}}
+      aws_secret_key: {{aws_secret_access_key}}
+      aws_region: {{aws_default_region}}
+<% if 'aws' == @iaas %>
+      rds_instance_class: replaced_by_var
+      rds_db_name: replaced_by_var
+      rds_db_username: replaced_by_var
+      rds_db_password: replaced_by_var
+      rds_instance_count: 0
+      rds_instance_class: replaced_by_var
+      availability_zones: ["replaced_by_var"]
+      ops_manager_ami: ""
+      optional_ops_manager_ami: ""
+<% elsif 'gcp' == @iaas %>
+      env_short_name: <%= Digest::SHA1.hexdigest(env_name).gsub(/[^A-z,.]/, "")[0,5] %>  # hashing the envname and taking first 5 letters, as the shortname is restricted
+      project_name: {{gcp_project}}
+      region: {{gcp_region}}
+      service_account_key: {{gcp_service_account_key}}
+      opsman_image_url: replaced_by_var
+      optional_opsman_image_url: ""
+      zones: ["replaced_by_var"]
+      ssl_cert: replaced_by_var
+      ssl_cert_private_key: replaced_by_var
+      ws_http_ip_address: replaced_by_var
+<% elsif 'azure' == @iaas %>
+      env_short_name: <%= Digest::SHA1.hexdigest(env_name)[0,10] %>  # hashing the envname and taking first 10 chars, as the shortname is restricted
+      subscription_id: {{azure_subscription_id}}
+      tenant_id: {{azure_tenant_id}}
+      client_id: {{azure_client_id}}
+      client_secret: {{azure_client_secret}}
+      location: {{azure_region}}
+      vm_admin_username: replaced_by_var
+      vm_admin_password: replaced_by_var
+      tag: {{env_name_fixed}}
+      optional_ops_manager_image_uri: ""
+<% end %>
+
+- name: iaas-tf-source
+  type: git
+  source:
+<% if 'aws' == @iaas %>
+    uri: git@github.com:amohemed/terraforming-aws.git
+    #uri: git@github.com:pivotal-cf/terraforming-aws.git
+    branch: master
+<% elsif 'gcp' == @iaas %>
+    uri: git@github.com:amohemed/terraforming-gcp.git
+    #uri: git@github.com:pivotal-cf/terraforming-gcp.git
+    branch: master
+    #tag_filter: 'v0.6.0'
+<% elsif 'azure' == @iaas %>
+    uri: git@github.com:amohemed/terraforming-azure.git
+    #uri: git@github.com:pivotal-cf/terraforming-azure.git
+    branch: master
+    #tag_filter: 'v0.4.0'
+<% end %>
+    private_key: {{master-pipeline-git-key}}
+
+
+#-------------------------------
+# Common section to all jobs
+#-------------------------------
+
+section: &common-job-section
+  build_logs_to_retain: 25
+
+section: &common-on-failure-section
+  on_failure:
+    do:
+      - task: set-status-to-stalled
+        config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'STALLED'}) %>
+        input_mapping: {latest-base-report: report-dir}
+      - put: slack-master-pipeline-failure-report
+        params:
+          text: |
+            The job <http://pcf-master-pipeline-ci.iet.to.cf-app.com/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME|$BUILD_JOB_NAME> failed on the pipeline $BUILD_PIPELINE_NAME
+
+section: &common-on-failure-section-fetch-resources
+  on_failure:
+    do:
+      - task: set-status-to-stalled
+        config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'STALLED'}) %>
+      - put: slack-master-pipeline-failure-report
+        params:
+          text: |
+            The job <http://pcf-master-pipeline-ci.iet.to.cf-app.com/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME|$BUILD_JOB_NAME> failed on the pipeline $BUILD_PIPELINE_NAME
+
+section: &common-ensure-section
+  ensure:
+    do:
+      - put: latest-base-report
+        params:
+          file: report-dir/report_0.yml  # latest
+          content_type: text/plain
+      - task: create_timestamp_report
+        config: <%= render_task("create_timestamp_report.yml.erb") %>
+        input_mapping: {latest-base-report: report-dir}
+      - put: build-reports
+        params:
+          file: report-dir/report_2*.yml  # timestamped
+          content_type: text/plain
+
+section: &common-job-report-section
+  on_failure:
+    do:
+      - task: set-status-to-stalled
+        config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'STALLED'}) %>
+  ensure:
+    do:
+      - put: latest-base-report
+        params:
+          file: report-dir/report_0.yml  # latest
+          content_type: text/plain
+      - task: create_timestamp_report
+        config: <%= render_task("create_timestamp_report.yml.erb") %>
+        input_mapping: {latest-base-report: report-dir}
+      - put: build-reports
+        params:
+          file: report-dir/report_2*.yml  # timestamped
+          content_type: text/plain
+
+
+#-------------------------------
+# Jobs
+#-------------------------------
+
+jobs:
+
+#
+# Base trigger on new tiles
+#
+<% if is_target_pipeline %>
+- name: trigger-base
+  <<: *common-job-section
+  plan:
+  - aggregate:
+    - get: master-pipeline-git
+    - get: opsmanager-tile
+      trigger: true
+      params:
+        globs:
+          - "<%= opsmanager_glob %>"
+<% tiles.each do |tile| %>
+    - get: <%= tile['slug'] %>
+      trigger: true
+      params:
+        globs:
+        - {{tile_filename_glob}}
+<% end %>
+<% addons.each do |addon| %>
+    - get: <%= addon['slug'] %>
+      trigger: true
+      params:
+        globs:
+        - "<%= addon['glob'] %>"
+<% end %>
+  - task: upgrade
+    config: <%= render_task("trigger_upgrade.yml.erb", {"iaas" => iaas}) %>
+  - put: upgrade-trigger
+    params:
+      file: upgrade-trigger/upgrade_trigger.txt
+<% end %>
+
+#
+# Normal tile trigger
+#
+- name: tile-trigger
+  <<: *common-job-section
+  serial: true
+  plan:
+<% if is_base_pipeline %>
+  - put: env-lock-target
+    params:
+      acquire: true
+<% end %>
+  - put: env-lock
+    params:
+      acquire: true
+  - aggregate:
+    - get: master-pipeline-git
+<% if not is_target_pipeline %>
+    - get: opsmanager-tile
+      trigger: <%= not is_target_pipeline %>
+      params:
+        globs:
+          - "<%= opsmanager_glob %>"
+<% tiles.each do |tile| %>
+    - get: <%= tile['slug'] %>
+      trigger: <%= not is_target_pipeline %>
+      params:
+        globs:
+        - {{tile_filename_glob}}
+<% end %>
+<% addons.each do |addon| %>
+    - get: <%= addon['slug'] %>
+      trigger: <%= not is_target_pipeline %>
+      params:
+        globs:
+        - "<%= addon['glob'] %>"
+<% end %>
+<% end %>
+<% if is_base_pipeline %>
+    - get: upgrade-trigger
+      trigger: true
+<% end %>
+<% if is_target_pipeline %>
+    - get: installation-settings
+      trigger: true
+<% end %>
+  on_failure:
+    do:
+      - put: env-lock
+        params:
+          release: env-lock
+<% if is_base_pipeline %>
+      - put: env-lock-target
+        params:
+          release: env-lock-target
+<% end %>
+
+
+#
+# Deployment trigger
+#
+- name: deployment-trigger
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [tile-trigger]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%= is_target_pipeline ? "trigger-base": "tile-trigger" %>]
+    - get: opsmanager-tile
+      trigger: <%= not is_target_pipeline %>
+<% if !is_target_pipeline %>
+      passed: [tile-trigger]
+<% else %>
+      passed: [trigger-base]
+<% end %>
+      params:
+        globs:
+          - "<%= opsmanager_glob %>"
+<% if is_target_pipeline %>
+    - get: latest-base-report
+<% end %>
+<% tiles.each do |tile| %>
+    - get: <%= tile['slug'] %>
+<% if !is_target_pipeline %>
+      passed: [tile-trigger]
+<% else %>
+      passed: [trigger-base]
+<% end %>
+      trigger: <%= not is_target_pipeline %>
+      params:
+        globs:
+        - {{tile_filename_glob}}
+<% end %>
+<% addons.each do |addon| %>
+    - get: <%= addon['slug'] %>
+<% if !is_target_pipeline %>
+      passed: [tile-trigger]
+<% else %>
+      passed: [trigger-base]
+<% end %>
+      trigger: <%= not is_target_pipeline %>
+      params:
+        globs:
+        - "<%= addon['glob'] %>"
+<% end %>
+  - do:
+<% if is_target_pipeline %>
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+<% end %>
+    - task: get-tile-versions
+      config: <%= render_task("get_tile_versions.yml.erb",
+        {
+          "tiles" => tiles,
+          "iaas" => iaas,
+        }) %>
+    - task: generate-report
+      config: <%= render_task("generate_report_upsert.yml.erb",
+        {
+          "tiles" => tiles,
+          "addons" => addons,
+          "iaas" => iaas,
+          "is_target_pipeline" => is_target_pipeline
+        }) %>
+<% if is_target_pipeline %>
+      input_mapping: {latest-base-report: report-dir}
+    <<: *common-on-failure-section
+
+  <<: *common-on-failure-section-fetch-resources
+<% else %>
+    - task: generate-report
+      config: <%= render_task("generate_report_upsert.yml.erb",
+        {
+          "tiles" => tiles,
+          "addons" => addons,
+          "iaas" => iaas,
+          "is_target_pipeline" => is_target_pipeline
+        }) %>
+    <<: *common-on-failure-section
+
+  on_failure:
+    do:
+      - task: generate-report
+        config: <%= render_task("generate_report_upsert.yml.erb",
+          {
+            "tiles" => tiles,
+            "addons" => addons,
+            "iaas" => iaas,
+            "is_target_pipeline" => is_target_pipeline
+          }) %>
+      - task: set-status-to-stalled
+        config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'STALLED'}) %>
+        input_mapping: {latest-base-report: report-dir}
+<% end %>
+  <<: *common-ensure-section
+
+<% if not is_target_pipeline %>
+#
+# Clean infrastrucure
+#
+
+<%=
+  vars = {
+    "env_name_fixed" => env_name_fixed,
+    "iaas" => iaas,
+    "is_manual" => false,
+    "passed" => "deployment-trigger",
+    "name" => "clean-infrastructure",
+    "update_report" => true,
+    "opsmanager_url" => opsmanager_url,
+    "iaas_tf_state_resource" => "iaas-tf-state"
+  }
+render_template("clean_infrastructure_job.yml.erb", vars)
+%>
+
+#
+# Generate dynamic credentials
+#
+- name: generate-credentials
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [clean-infrastructure]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [clean-infrastructure]
+      trigger: true
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: generate-credentials
+      config: <%= render_task("generate_credentials.yml.erb", {"output_file" => "creds.yml", "env_name_fixed" => env_name_fixed, "iaas" => iaas}) %>
+    - put: lp-dynamic-creds
+      params:
+        file: env-credentials/creds.yml
+        content_type: text/plain
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+#
+# Prepare infrastructure
+#
+- name: prepare-infrastructure
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+<% if is_base_pipeline %>
+    - get: upgrade-trigger
+<% end %>
+    - get: env-lock
+      passed: [generate-credentials]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [generate-credentials]
+      trigger: true
+    - get: iaas-tf-source
+    - get: opsmanager-tile
+      passed: [deployment-trigger]
+      params:
+        globs:
+          - "<%= opsmanager_glob %>"
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: generate-tf-vars-file
+      config: <%= render_task("generate_tf_vars_file.yml.erb", {"iaas" => iaas, "env_name_fixed" => env_name_fixed, "is_base_pipeline" => is_base_pipeline, "use_self_signed_cert" => "true"}) %>
+    - task: override-tf
+      config: <%= render_task("override_tf_module.yml.erb", {"iaas" => iaas}) %>
+    - put: iaas-tf-state
+      params:
+        env_name: {{env_name_fixed}}
+        delete_on_failure: false
+        var_file: tf-vars-dir/tf_vars.yml
+      get_params:
+        output_module: terraforming
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+- name: update-credentials
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [prepare-infrastructure]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [prepare-infrastructure]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: update-dns-records
+      config: <%= render_task("update_dns_records.yml.erb", {"env_name_fixed" => env_name_fixed}) %>
+    - task: update-dynamic-credentials-with-tf-output
+      config: <%= render_task("update_credentials_with_tf_output.yml.erb") %>
+    - put: lp-dynamic-creds
+      params:
+        file: env-credentials/creds.yml
+        content_type: text/plain
+    <<: *common-on-failure-section
+  on_success:
+    try:
+      put: opsman-lpass-site # TODO - remove this put. It's doesn't work and it's not used anyways.
+      params:
+        overwrite_when_existing: true
+        website_credentials: lpass-opsman-credentials-file/creds.yml
+  <<: *common-job-report-section
+
+- name: update-lastpass-opsman-credentials
+  plan:
+    - get: env-lock
+      passed: [update-credentials]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [update-credentials]
+      trigger: true
+    - get: lp-dynamic-creds
+      passed: [update-credentials]
+      trigger: true
+    - task: generate-lpass-opsman-credentials-file
+      config: <%= render_task("generate_lpass_opsman_credentials_file.yml.erb") %>
+    - put: opsman-lpass-site
+      params:
+        overwrite_when_existing: true
+        website_credentials: lpass-opsman-credentials-file/creds.yml
+
+
+- name: retrieve-external-dependencies-output
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [update-credentials]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [update-credentials]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: external-dependencies
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: update-dynamic-credentials-with-external-dependencies-tf-output
+      config: <%= render_task("update_credentials_with_external_dependencies_tf_output.yml.erb") %>
+    - put: lp-dynamic-creds
+      params:
+        file: env-credentials/creds.yml
+        content_type: text/plain
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+
+<% init_opsmanager_previous_task = is_target_pipeline ? 'deployment-trigger' : 'retrieve-external-dependencies-output' %>
+#
+# Deploy opsman
+#
+- name: init-opsmanager
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [<%= init_opsmanager_previous_task %>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%= init_opsmanager_previous_task %>]
+      trigger: true
+    - do:
+      - task: sleep-wait-for-creds
+        config: <%= render_task("sleep_task.yml.erb", {"duration" => 5}) %>
+    - get: lp-dynamic-creds
+    - get: iaas-tf-source
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+<% if is_base_pipeline %>
+    - get: upgrade-trigger
+      passed: [prepare-infrastructure]
+<% end %>
+<% if is_target_pipeline %>
+    - get: installation-settings
+      passed: [tile-trigger]
+<% end %>
+<% if iaas == 'gcp' %>
+    - get: opsmanager-tile
+      passed: [deployment-trigger]
+      params:
+        globs:
+          - "<%= opsmanager_glob %>"
+<% end %>
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: init-opsmanager
+      config: <%= render_task("init_opsmanager.yml.erb", {"is_target_pipeline" => is_target_pipeline, "iaas" => iaas, "tiles" => tiles}) %>
+      input_mapping: {latest-base-report: report-dir}
+<% if not is_target_pipeline %>
+    - task: generate-ssl-certificate
+      config: <%= render_task("generate_ssl_certificate.yml.erb") %>
+    - put: lp-dynamic-creds
+      params:
+        file: env-credentials/creds.yml
+        content_type: text/plain
+<% end %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+
+#
+# Custom Director configuration
+# Configure the director for properties that aren't supported by opsmanager
+#
+- name: custom-director-configuration
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [init-opsmanager]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [init-opsmanager]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+      passed: [init-opsmanager]
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: custom-director-configuration
+      config: <%= render_task("custom_director_configuration.yml.erb") %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+
+<% if is_target_pipeline && tiles.length > 0 %>
+#
+# Upload stemcells
+#
+- name: upload-stemcells-after-import
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [custom-director-configuration]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [custom-director-configuration]
+      trigger: true
+    - get: latest-base-report
+    - get: lp-dynamic-creds
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: upload-stemcells
+      config: <%= render_task("upload_stemcells.yml.erb", {"is_target_stemcell_versions" => false}) %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+
+<%
+install_bosh_director_previous_task = "custom-director-configuration"
+if is_target_pipeline && tiles.length > 0
+  install_bosh_director_previous_task = "upload-stemcells-after-import"
+end
+%>
+
+#
+# Install opsman/bosh director
+#
+- name: install-bosh-director
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [<%= install_bosh_director_previous_task %>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%= install_bosh_director_previous_task %>]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: add-director-config-to-report
+      config: <%= render_task("add_director_config_to_report.yml.erb", {"iaas" => iaas}) %>
+      input_mapping: {latest-base-report: report-dir}
+    - put: latest-base-report
+      params:
+        file: report-dir/report_0.yml  # latest
+        content_type: text/plain
+    - task: create_timestamp_report
+      config: <%= render_task("create_timestamp_report.yml.erb") %>
+      input_mapping: {latest-base-report: report-dir}
+    - put: build-reports
+      params:
+        file: report-dir/report_2*.yml  # timestamped
+        content_type: text/plain
+    - task: apply-changes
+      config: <%= render_task("apply_changes.yml.erb") %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+<% unless is_target_pipeline %>
+- name: configure-jumpbox
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [install-bosh-director]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [install-bosh-director]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: configure-bosh-on-jumpbox
+      config: <%= render_task("configure_bosh_on_jumpbox.yml.erb") %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+
+#
+# Addon Upload
+#
+
+<%
+addons.each_with_index do |addon, index|
+  resource_dependency = ''
+  if index == 0
+    if is_target_pipeline
+      resource_dependency = "install-bosh-director"
+    else
+      resource_dependency = "configure-jumpbox"
+    end
+  else
+    resource_dependency = "upload-#{addons[index-1]['slug']}"
+  end
+%>
+- name: upload-<%= addon['slug'] %>
+  <<: *common-job-section
+  serial: true
+  plan:
+  - aggregate:
+    - get: lp-dynamic-creds
+    - get: <%= addon['slug'] %>
+      params:
+        globs:
+        - "<%= addon['glob'] %>"
+    - get: env-lock
+      passed: [<%= resource_dependency %>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%= resource_dependency %>]
+      trigger: true
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: upload-bosh-addon
+      config: <%= render_task("upload_bosh_addon.yml.erb", {"addon" => addon}) %>
+
+    - task: generate-report
+      config: <%= render_task("generate_report_add_item.yml.erb", {"item_slug" => addon['slug'], "report_mode" => "ADD_ADDON"}) %>
+      input_mapping: {latest-base-report: report-dir}
+
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+#
+# BOSH config
+#
+
+<%
+if addons.empty?
+  if is_target_pipeline
+    configure_bosh_resource_passed = "install-bosh-director"
+  else
+    configure_bosh_resource_passed = "configure-jumpbox"
+  end
+else
+  configure_bosh_resource_passed = "upload-" + addons[addons.length-1]['slug']
+end
+%>
+
+- name: configure-bosh
+  <<: *common-job-section
+  plan:
+  - aggregate:
+    - get: lp-dynamic-creds
+    - get: env-lock
+      passed: [<%= configure_bosh_resource_passed %>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%= configure_bosh_resource_passed %>]
+      trigger: true
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+<% addons.each do |addon| %>
+    - get: <%= addon['slug'] %>
+      passed: [upload-<%= addon['slug'] %>]
+      trigger: true
+<% end %>
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: update-runtime-config
+      config: <%= render_task("update_runtime_config.yml.erb", {"addons" => addons, "iaas" => @iaas}) %>
+      input_mapping: {latest-base-report: report-dir}
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+#
+# Tile Upload
+#
+<%
+tiles.each_with_index do |tile, index|
+  resource_dependency = ''
+  if  index == 0
+    resource_dependency = "configure-bosh"
+  else
+    resource_dependency = "upload-#{tiles[index-1]['slug']}"
+  end
+%>
+- name: upload-<%= tile['slug'] %>
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: <%= tile['slug'] %>
+      params:
+        globs:
+        - {{tile_filename_glob}}
+    - get: env-lock
+      passed: [<%= resource_dependency %>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%= resource_dependency %>]
+      trigger: true
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+    - get: lp-dynamic-creds
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: add-product
+      config: <%= render_task("add_product.yml.erb", {"tile" => tile}) %>
+
+    - task: configure-product
+      config: <%= render_task("configure_product.yml.erb", tile_task_paths[tile['slug']]['configure_product_task_path'].merge!({"tf_outputs_json_file" => "iaas-tf-state/metadata", "is_target_pipeline" => is_target_pipeline, "is_clean_pipeline" => is_clean_pipeline})) %>
+      input_mapping: {latest-base-report: report-dir}
+
+    - task: generate-report
+      config: <%= render_task("generate_report_add_item.yml.erb", {"item_slug" => tile['slug'], "report_mode" => "ADD_TILE"}) %>
+      input_mapping: {latest-base-report: report-dir}
+
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+
+<% if tiles.length > 0 %>
+#
+# Upload stemcells
+#
+- name: upload-stemcells
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [upload-<%= tiles[tiles.length-1]['slug'] %>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [upload-<%= tiles[tiles.length-1]['slug'] %>]
+      trigger: true
+    - get: latest-base-report
+    - get: lp-dynamic-creds
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: upload-stemcells
+      config: <%= render_task("upload_stemcells.yml.erb", {"is_target_stemcell_versions" => true}) %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+
+- name: apply-changes
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+    <% if tiles.length > 0 %>
+      passed: [upload-stemcells]
+    <% else %>
+      passed: [configure-bosh]
+    <% end %>
+      trigger: true
+    - get: master-pipeline-git
+    <% if tiles.length > 0 %>
+      passed: [upload-stemcells]
+    <% else %>
+      passed: [configure-bosh]
+    <% end %>
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: add-tile-config-to-report
+      config: <%= render_task("add_tile_config_to_report.yml.erb", {"tiles" => tiles, "is_clean_pipeline" => is_clean_pipeline, "is_target_pipeline" => is_target_pipeline}) %>
+      input_mapping: {latest-base-report: report-dir}
+    - put: latest-base-report
+      params:
+        file: report-dir/report_0.yml  # latest
+        content_type: text/plain
+    - task: create_timestamp_report
+      config: <%= render_task("create_timestamp_report.yml.erb") %>
+      input_mapping: {latest-base-report: report-dir}
+    - put: build-reports
+      params:
+        file: report-dir/report_2*.yml  # timestamped
+        content_type: text/plain
+    - task: apply-changes
+      config: <%= render_task("apply_changes.yml.erb") %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+<% if is_scantron_enabled %>
+- name: run-scantron
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [apply-changes]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [apply-changes]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: run-scantron
+      config: <%= render_task("run_scantron.yml.erb", {"jumpbox_address" => "jumpbox.#{env_name_fixed}.iet.to.cf-app.com", "scantron_version" => "0.2"}) %>
+    - put: scantron-reports
+      params:
+        file: scantron-report/scantron_report.db.gz
+        predefined_acl: projectPrivate
+    - put: scantron-reports
+      params:
+        file: latest-base-report/report_0.yml
+        predefined_acl: projectPrivate
+<% run_scantron_job_dependency = "run-scantron" %>
+<% else %>
+<% run_scantron_job_dependency = "apply-changes" %>
+<% end %>
+
+<%
+  apply_changes_or_next_job = "apply-changes"
+%>
+
+<%
+  if feature == "ca-rotation"
+    apply_changes_or_next_job = "ca-rotation"
+%>
+
+- name: ca-rotation
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [apply-changes]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [apply-changes]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: rotate-ca
+      config: <%= render_task("rotate_ca.yml.erb") %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+
+- name: export-installation-settings
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [<%=apply_changes_or_next_job%>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%=apply_changes_or_next_job%>]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: export-installation-settings
+      config: <%= render_task("export_installation_settings.yml.erb") %>
+    - put: installation-settings
+      params:
+        file: installation-settings/installation.zip
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+- name: run-bbr-backup
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [<%=apply_changes_or_next_job%>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%=apply_changes_or_next_job%>]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: bbr-release
+      version: {tag: 'v1.0.0-beta.4'}
+  - do:
+    - task: run-bbr-backup
+      config: <%= render_task("run_bbr_backup.yml.erb", {"jumpbox_address" => "jumpbox.#{env_name_fixed}.iet.to.cf-app.com"}) %>
+    - put: bbr-backups
+      params:
+        file: bbr-backups/bbr-backups.tar
+
+<% if not is_base_pipeline %> #TODO: Make sure base pipelines are still sane
+
+- name: delete-tiles
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [run-bbr-backup, export-installation-settings, <%=run_scantron_job_dependency%>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [run-bbr-backup, export-installation-settings, <%=run_scantron_job_dependency%>]
+      trigger: true
+    - get: latest-base-report
+    - get: lp-dynamic-creds
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: delete-products
+      config: <%= render_task("delete_products.yml.erb", {}) %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+- name: apply-delete-tiles
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [delete-tiles]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [delete-tiles]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - put: latest-base-report
+      params:
+        file: report-dir/report_0.yml  # latest
+        content_type: text/plain
+    - task: create_timestamp_report
+      config: <%= render_task("create_timestamp_report.yml.erb") %>
+      input_mapping: {latest-base-report: report-dir}
+    - put: build-reports
+      params:
+        file: report-dir/report_2*.yml  # timestamped
+        content_type: text/plain
+    - task: apply-changes
+      config: <%= render_task("apply_changes.yml.erb") %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+- name: generate-report
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [apply-delete-tiles]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [apply-delete-tiles]
+      trigger: true
+    - get: latest-base-report
+  - do:
+    - task: generate-report
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => is_base_pipeline ? 'IN_PROGRESS' : 'PASS' }) %>
+    - put: slack-master-pipeline-passed-report
+      params:
+        text: |
+          Pipeline $BUILD_PIPELINE_NAME PASSED!
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+<% end %>
+
+
+<% if is_target_pipeline || is_clean_pipeline %>
+
+#
+# Teardown infrastrucure
+#
+
+<%=
+  vars = {
+    "env_name_fixed" => env_name_fixed,
+    "iaas" => iaas,
+    "is_manual" => false,
+    "passed" => "generate-report",
+    "name" => "teardown-infrastructure",
+    "update_report" => false,
+    "opsmanager_url" => opsmanager_url,
+    "iaas_tf_state_resource" => "iaas-tf-state"
+  }
+render_template("clean_infrastructure_job.yml.erb", vars)
+%>
+
+- name: release-lock
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - get: env-lock
+    passed: [teardown-infrastructure]
+    trigger: true
+  - put: env-lock
+    params:
+      release: env-lock
+
+<% end %>
+
+################################################################################
+######################## BBR Restore Test ######################################
+################################################################################
+<% if is_clean_pipeline %>
+#
+# Prepare infrastructure
+#
+- name: prepare-infrastructure-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [teardown-infrastructure]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [teardown-infrastructure]
+      trigger: true
+    - get: iaas-tf-source
+    - get: opsmanager-tile
+      passed: [deployment-trigger]
+      params:
+        globs:
+          - "<%= opsmanager_glob %>"
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: generate-tf-vars-file
+      config: <%= render_task("generate_tf_vars_file.yml.erb", {"iaas" => iaas, "env_name_fixed" => env_name_fixed, "is_base_pipeline" => is_base_pipeline, "use_self_signed_cert" => "true"}) %>
+    - task: override-tf
+      config: <%= render_task("override_tf_module.yml.erb", {"iaas" => iaas}) %>
+    - put: iaas-tf-state
+      params:
+        env_name: {{env_name_fixed}}
+        delete_on_failure: false
+        var_file: tf-vars-dir/tf_vars.yml
+      get_params:
+        output_module: terraforming
+
+- name: update-credentials-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [prepare-infrastructure-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [prepare-infrastructure-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: update-dns-records
+      config: <%= render_task("update_dns_records.yml.erb", {"env_name_fixed" => env_name_fixed}) %>
+    - task: update-dynamic-credentials-with-tf-output
+      config: <%= render_task("update_credentials_with_tf_output.yml.erb") %>
+    - put: lp-dynamic-creds
+      params:
+        file: env-credentials/creds.yml
+        content_type: text/plain
+
+- name: update-lastpass-opsman-credentials-bbr
+  plan:
+    - get: env-lock
+      passed: [update-credentials-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [update-credentials-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+      passed: [update-credentials-bbr]
+      trigger: true
+    - task: generate-lpass-opsman-credentials-file
+      config: <%= render_task("generate_lpass_opsman_credentials_file.yml.erb") %>
+    - put: opsman-lpass-site
+      params:
+        overwrite_when_existing: true
+        website_credentials: lpass-opsman-credentials-file/creds.yml
+
+
+- name: retrieve-external-dependencies-output-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [update-credentials-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [update-credentials-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+    - get: iaas-tf-state
+      params:
+        output_module: external-dependencies
+  - do:
+    - task: set-status-to-in-progress
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'IN_PROGRESS'}) %>
+    - task: update-dynamic-credentials-with-external-dependencies-tf-output
+      config: <%= render_task("update_credentials_with_external_dependencies_tf_output.yml.erb") %>
+    - put: lp-dynamic-creds
+      params:
+        file: env-credentials/creds.yml
+        content_type: text/plain
+
+#
+# Deploy opsman
+#
+- name: import-opsmanager-settings-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [retrieve-external-dependencies-output-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [retrieve-external-dependencies-output-bbr]
+      trigger: true
+    - do:
+      - task: sleep-wait-for-creds
+        config: <%= render_task("sleep_task.yml.erb", {"duration" => 5}) %>
+    - get: lp-dynamic-creds
+    - get: installation-settings
+      passed: [export-installation-settings]
+  - do:
+    - task: import-opsmanager-settings
+      config: <%= render_task("import_opsmanager_settings.yml.erb", {"env_name" => bbr_env_name, "opsmanager_url" => bbr_opsmanager_url}) %>
+
+- name: delete-bosh-state-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [import-opsmanager-settings-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [import-opsmanager-settings-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: iaas-tf-state
+      params:
+        output_statefile: true
+  - do:
+    - task: delete-bosh-state
+      config: <%= render_task("delete_bosh_state.yml.erb") %>
+
+#
+# Upload stemcells
+#
+<% if tiles.length > 0 %>
+
+- name: upload-stemcells-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [delete-bosh-state-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [delete-bosh-state-bbr]
+      trigger: true
+    - get: latest-base-report
+    - get: lp-dynamic-creds
+  - do:
+    - task: upload-stemcells
+      config: <%= render_task("upload_stemcells.yml.erb", {"is_target_stemcell_versions" => false}) %>
+
+<% deploy_bosh_director_previous_task = "upload-stemcells-bbr" %>
+<% else %>
+<% deploy_bosh_director_previous_task = "delete-bosh-state-bbr" %>
+<% end %>
+
+- name: deploy-bosh-director-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [<%= deploy_bosh_director_previous_task %>]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [<%= deploy_bosh_director_previous_task %>]
+      trigger: true
+    - get: lp-dynamic-creds
+  - do:
+    - task: deploy-bosh-director
+      config: <%= render_task("deploy_bosh_director.yml.erb", {"jumpbox_address" => "jumpbox.#{env_name_fixed}.iet.to.cf-app.com"}) %>
+
+- name: configure-jumpbox-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [deploy-bosh-director-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [deploy-bosh-director-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: latest-base-report
+  - do:
+    - task: configure-bosh-on-jumpbox
+      config: <%= render_task("configure_bosh_on_jumpbox.yml.erb") %>
+
+- name: run-bbr-restore-bbr
+  <<: *common-job-section
+  serial_groups: [{{env_name}}]
+  plan:
+  - aggregate:
+    - get: env-lock
+      passed: [configure-jumpbox-bbr]
+      trigger: true
+    - get: master-pipeline-git
+      passed: [configure-jumpbox-bbr]
+      trigger: true
+    - get: lp-dynamic-creds
+    - get: bbr-backups
+    - get: bbr-release
+      version: {tag: 'v1.0.0-beta.4'}
+  - do:
+    - task: run-bbr-restore
+      config: <%= render_task("run_bbr_restore.yml.erb") %>
+
+<% end # if is_clean_pipeline %>
+
+################################################################################
+################################################################################
+######################### END OF CONTINUOUS PIPELINE ###########################
+################################################################################
+################################################################################
+
+- name: manual-unlock-env-lock
+  <<: *common-job-section
+  serial: true
+  plan:
+  - get: env-lock
+  - put: env-lock
+    params:
+      release: env-lock
+
+<% if not is_clean_pipeline %>
+- name: manual-unlock-env-lock-target
+  <<: *common-job-section
+  serial: true
+  plan:
+  - get: env-lock-target
+  - put: env-lock-target
+    params:
+      release: env-lock-target
+
+- name: manual-lock-env-lock-target
+  <<: *common-job-section
+  serial: true
+  plan:
+  - put: env-lock-target
+    params:
+      acquire: true
+<% end %>
+
+- name: manual-fail
+  <<: *common-job-section
+  serial: true
+  plan:
+  - aggregate:
+    - get: master-pipeline-git
+    - get: latest-base-report
+    - get: lp-dynamic-creds
+    - get: iaas-tf-state
+      params:
+        output_module: terraforming
+  - do:
+    - task: generate-failure-report
+      config: <%= render_task("generate_report_update_status.yml.erb", {"report_status" => 'FAIL'}) %>
+    - task: get-failure-logs
+      config: <%= render_task("get_failure_logs.yml.erb") %>
+    - put: failure-logs
+      params:
+        file: log/logs_*.zip
+        predefined_acl: publicRead
+    - task: generate-env-summary
+      config: <%= render_task("generate_env_summary.yml.erb") %>
+    - task: create-tracker-ticket
+      config: <%= render_task("create_tracker_ticket.yml.erb") %>
+    - task: apply-tracker-ticket-to-report
+      config: <%= render_task("generate_report_update_tracker_ticket_url.yml.erb") %>
+    <<: *common-on-failure-section
+  <<: *common-job-report-section
+
+- name: diag-to-slack
+  <<: *common-job-section
+  serial: true
+  plan:
+  - get: master-pipeline-git
+  - get: latest-base-report
+  - get: lp-dynamic-creds
+  - get: iaas-tf-state
+    params:
+      output_module: terraforming
+  - task: empty-logs
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: cfmobile/master-pipeline
+          tag: stable
+      run:
+        path: /bin/bash
+        args:
+        - -c
+        - |
+          mkdir log
+          touch log/empty
+      outputs:
+      - name: log
+
+  - task: generate-env-summary
+    config: <%= render_task("generate_env_summary.yml.erb") %>
+  - put: slack-master-pipeline-diag
+    params:
+      text_file: summary/description
+  - put: slack-master-pipeline-diag
+    params:
+      text_file: summary/jumpbox_key.pem
+
+<% if !is_target_pipeline %>
+## Manual Clean Infrastructure
+#
+#
+
+<%=
+  vars = {
+    "env_name_fixed" => env_name_fixed,
+    "iaas" => iaas,
+    "is_manual" => true,
+    "name" => "manual-clean-infrastructure",
+    "update_report" => false,
+    "opsmanager_url" => opsmanager_url,
+    "iaas_tf_state_resource" => "iaas-tf-state"
+  }
+render_template("clean_infrastructure_job.yml.erb", vars)
+
+%>
+
+<% end %>
+#-------------------------------
+# Resource Types
+#-------------------------------
+resource_types:
+- name: pivnet
+  type: docker-image
+  source:
+    repository: pivotalcf/pivnet-resource
+    tag: latest-final
+
+# clone https://github.com/pdelagrave/terraform-resource and run scripts/docker-build-patched to build a patched version of the latest terraform bin and generate the resource docker image with it.
+- name: terraform
+  type: docker-image
+  source:
+    repository: cfmobile/test-tf-resource
+    tag: latest # We must use this version until terraforming-gcp adds support for latest version of terraform
+
+- name: pool
+  type: docker-image
+  source:
+    repository: cfmobile/master-pipeline-pool-resource
+    tag: nodots
+
+- name: lastpass-resource
+  type: docker-image
+  source:
+    repository: cfmobile/lastpass-resource
+    tag: latest
+
+- name: gcs-resource
+  type: docker-image
+  source:
+    repository: frodenas/gcs-resource
+
+- name: slack-notification
+  type: docker-image
+  source:
+    repository: cfcommunity/slack-notification-resource
+    tag: latest
