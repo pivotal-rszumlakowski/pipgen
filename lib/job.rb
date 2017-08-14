@@ -19,19 +19,20 @@ class Job
 		return unless job_hash.key? "plan"
 		return if job_hash["plan"].nil? or job_hash["plan"].empty?
 
-		all_get_items = plan_aggregate_items[0]
+		#all_get_items = plan_aggregate_items[0]
+		all_get_items = []
 		#all_get_items.concat(plan_aggregate_items())
-		#all_get_items.concat(get_items(job_hash["plan"]))
+		all_get_items.concat(get_items(job_hash["plan"]))
 
-		puts "count: #{all_get_items.count}"
-		puts "#{all_get_items.class}"
-		all_get_items.each_index{ |i|  puts "#{i}: #{all_get_items[i]}" }
-		puts "\n\n"
 
 		all_get_items.each { |get_item|
 			@plan_gets << get_item
 			@depends_on << get_item["passed"] if get_item.key?("passed")
 		}
+
+		#puts "#{@plan_gets.class}"
+		#@plan_gets.each_index{ |i|  puts "#{i}: #{@plan_gets[i].class}" }
+		#puts "\n\n"
 	end
 
 	def valid?

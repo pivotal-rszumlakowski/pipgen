@@ -10,9 +10,9 @@ describe Job do
 ---
 name: simple_job
 plan:
-  - get: get1
-  - get: get2
-  - get: get3")
+- get: get1
+- get: get2
+- get: get3")
 
 	describe ".initialize" do
 
@@ -72,7 +72,7 @@ plan:
 			end
 
 			it "makes a job with three gets" do
-				expect(Job.new(JOB_WITH_GETS_AND_NO_PASSED).plan_gets).to be_empty
+				expect(Job.new(JOB_WITH_GETS_AND_NO_PASSED).plan_gets).to contain_exactly({"get"=>"get1"}, {"get"=>"get2"}, {"get"=>"get3"})
 			end
 
 			it "makes a job with no dependencies" do
