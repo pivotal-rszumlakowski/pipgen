@@ -27,6 +27,8 @@ class Job
 			@plan_gets << get_item
 			@depends_on << get_item["passed"] if get_item.key?("passed")
 		}
+
+		@depends_on.flatten!
 	end
 
 	def valid?

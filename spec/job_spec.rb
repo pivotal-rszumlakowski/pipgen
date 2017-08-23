@@ -65,6 +65,13 @@ plan:
 - get: get11
 - get: get12")
 
+JOB_WITH_ONE_PASSED_GET = YAML.load("
+---
+name: easy_job
+plan:
+- get: the_only_get
+  passed: [job_dependency1, job_dependency2, job_dependency3]")
+
 describe Job do
 	describe ".initialize" do
 
@@ -183,6 +190,24 @@ describe Job do
 
 			it "makes a job with no dependencies" do
 				expect(Job.new(JOB_WITH_MANY_GETS).depends_on).to be_empty
+			end
+		end
+
+		context "given a job with simple dependencies" do
+			it "saves the name" do
+				expect(Job.new(JOB_WITH_ONE_PASSED_GET).name).to eq "easy_job"
+			end
+
+			it "makes a valid job" do
+				expect(Job.new(JOB_WITH_ONE_PASSED_GET).valid?).to be true
+			end
+
+			it "makes a job with three gets" do
+				expect(Job.new(JOB_WITH_ONE_PASSED_GET).plan_gets).to contain_exactly({"get"=>"the_only_get", "passed"=>["job_dependency1", "job_dependency2", "job_dependency3"]})
+			end
+
+			it "makes a job with no dependencies" do
+				expect(Job.new(JOB_WITH_ONE_PASSED_GET).depends_on).to contain_exactly("job_dependency1", "job_dependency2", "job_dependency3")
 			end
 		end
 
