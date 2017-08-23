@@ -45,4 +45,3 @@ class Job
 		plan.select{ |item| item.key?("get") }
 	end
 end
-
