@@ -10,7 +10,7 @@ class Job
 		@job_hash = job_hash
 		@name = ""
 
-		return if job_hash.empty?
+		raise "Empty job definition" if job_hash.empty?
 
 		@name = job_hash["name"]
 		@plan_gets = []
@@ -29,10 +29,6 @@ class Job
 		}
 
 		@depends_on.flatten!
-	end
-
-	def valid?
-		not name.empty?
 	end
 
 	private
