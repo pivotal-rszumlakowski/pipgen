@@ -78,3 +78,13 @@ plan:
   passed: [job_dependency1, job_dependency2, job_dependency3]
 - get: the_second_get
   passed: [job_dependency4, job_dependency5, job_dependency6]")
+
+JOB_WITH_TWO_PASSED_GETS_AND_SHARED_DEPENDENCIES = YAML.load("
+---
+name: slightly_more_complex_job
+plan:
+- get: the_first_get
+  passed: [job_dependency1, job_dependency2, job_dependency3]
+- aggregate:
+  - get: the_second_get
+    passed: [job_dependency1, job_dependency2, job_dependency4]")

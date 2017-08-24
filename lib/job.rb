@@ -29,6 +29,7 @@ class Job
 		}
 
 		@depends_on.flatten!
+		@depends_on.uniq!
 	end
 
 	private
