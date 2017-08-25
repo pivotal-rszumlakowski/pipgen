@@ -33,13 +33,13 @@ describe Pipeline do
 	describe ".build" do
 		context "missing jobs from job_library" do
 			it "raises an error if the pipeline definition requests a non-existent job" do
-				expect {Pipeline.new(["missing_job"], [build(:job)]).build}.to raise_error "Missing job: missing_job"
+				expect {Pipeline.new(["missing_job"], [build(:job_with_no_plan)]).build}.to raise_error "Missing job: missing_job"
 			end
 		end
 
 		context "pipeline with one job" do
 			it "resolves a pipeline with one job" do
-				expect {Pipeline.new(["awesome_job"], [build(:job)]).build}.not_to raise_error
+				expect {Pipeline.new(["my_job_name"], [build(:job_with_no_plan)]).build}.not_to raise_error
 			end
 		end
 	end

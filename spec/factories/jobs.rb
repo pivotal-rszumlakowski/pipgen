@@ -4,8 +4,8 @@ require 'job'
 
 FactoryGirl.define do
 
-	factory :job do
-		name "awesome_job"
+	factory :job, aliases: [:job_with_no_plan] do
+		name "my_job_name"
 		initialize_with {new(attributes)}
 	end
 
