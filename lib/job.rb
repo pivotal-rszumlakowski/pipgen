@@ -12,7 +12,8 @@ class Job
 
 		raise "Empty job definition" if job_hash.empty?
 
-		@name = job_hash["name"]
+		@name = job_hash["name"] if job_hash.key? "name"
+		@name = job_hash[:name] if job_hash.key? :name
 		@plan_gets = []
 		@depends_on = []
 

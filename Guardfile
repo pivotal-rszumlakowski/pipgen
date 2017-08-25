@@ -1,4 +1,4 @@
-guard :rspec, cmd: "rspec" do
+guard :rspec, cmd: "rspec", failed_mode: :keep, all_on_start: true do
   require "guard/rspec/dsl"
   dsl = Guard::RSpec::Dsl.new(self)
 

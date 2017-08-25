@@ -8,4 +8,4 @@ RSpec.configure do |config|
   end
 end
 
-# Not used yet. It's still too useful to load YAML data directly.
+
