@@ -33,10 +33,10 @@ class Pipeline
 		raise "Empty job list" if @jobs.nil? or @jobs.empty? and not @library.nil?
 		raise "Empty job library" if @library.nil? or @library.empty? and not @jobs.nil?
 
-		raise ("Missing job: " + @jobs[0].name) if @jobs[0].name == @library[0].name
-		#@jobs.each do |j|
-		#	raise ("Missing job: " + p.name) unless @library[0].name == j.name
-		#end
+		# Verify that each job can be found in the job library
+		@jobs.each do |j|
+			raise "Missing job: " + j.name unless @library.any?{ |i| i.name == j.name }
+		end
 		
 		return self
 	end
