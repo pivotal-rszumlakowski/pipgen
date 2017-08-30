@@ -16,10 +16,19 @@ class Pipeline
 		@jobs << job
 	end
 
+	def add_jobs(jobs)
+		raise "Nil job list" if jobs.nil?
+		raise "Job list must be an array of Job objects" unless jobs.is_a? Array
+		raise "Job list must be an array of Job objects" if jobs.any? {|j| not j.is_a? Job}
+		@jobs ||= []
+		@jobs.concat jobs
+	end
+
 	def library(library)
 		raise "Nil job library" if library.nil?
 		raise "Empty job library" if library.empty?
-		raise "Job library must be an array" unless library.is_a? Array
+		raise "Job library must be an array of Job objects" unless library.is_a? Array
+		raise "Job library must be an array of Job objects" if library.any? {|j| not j.is_a? Job}
 		@library = library
 	end
 

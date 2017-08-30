@@ -4,17 +4,46 @@ require 'pipeline'
 
 describe Pipeline do
 	describe "simple initialization" do
-
 		context "given an nil pipeline definition" do
 			it "raises an error" do
 				expect { Pipeline.define {} }.to raise_error "Empty pipeline definition"
 			end
 		end
+	end
 
+	describe "library method" do
+		context "given nil job library" do
+			it "raises an error" do
+				expect { Pipeline.define{ library nil }}.to raise_error "Nil job library"
+			end
+		end
+
+		context "given a non-array job library" do
+			it "raises an error" do
+				expect { Pipeline.define{ library "NOT AN ARRAY" }}.to raise_error "Job library must be an array of Job objects"
+			end
+		end
+
+		context "given empty job library" do
+			it "raises an error" do
+				expect { Pipeline.define{ library [] }}.to raise_error "Empty job library"
+			end
+		end
+
+		context "given an array with a non-Job object" do
+			it "raises an error" do
+				job1 = build(:job, name: "job1")
+				job2 = build(:job, name: "job2")
+				expect { Pipeline.define{ library [job1, "NOT A JOB", job2] }}.to raise_error "Job library must be an array of Job objects"
+			end
+		end
+	end
+
+	describe "add_job method" do
 		context "given no job library" do
 			it "raises an error" do
-				job_with_no_plan = build :job
-				expect { Pipeline.define{ add_job job_with_no_plan }}.to raise_error "Empty job library"
+				job = build :job
+				expect { Pipeline.define{ add_job job }}.to raise_error "Empty job library"
 			end
 		end
 
@@ -29,34 +58,38 @@ describe Pipeline do
 				expect { Pipeline.define{ add_job "NOT A JOB" }}.to raise_error "Given job not a Job object"
 			end
 		end
+	end
 
-		context "given nil job library" do
+	describe "add_jobs method" do
+		context "given nil" do
 			it "raises an error" do
-				expect { Pipeline.define{ library nil }}.to raise_error "Nil job library"
+				expect { Pipeline.define{ add_jobs nil }}.to  raise_error "Nil job list"
 			end
 		end
 
-		context "given a non-array job library" do
+		context "given a non-array job list" do
 			it "raises an error" do
-				expect { Pipeline.define{ library "NOT AN ARRAY" }}.to raise_error "Job library must be an array"
+				expect { Pipeline.define{ add_jobs "NOT AN ARRAY" }}.to raise_error "Job list must be an array of Job objects"
 			end
 		end
 
-		context "given empty job library" do
+		context "given an array with non-Job objects" do
 			it "raises an error" do
-				expect { Pipeline.define{ library [] }}.to raise_error "Empty job library"
-			end
-		end
-
-		context "given no jobs" do
-			it "raises an error" do
-				job_with_no_plan = build :job
-				expect { Pipeline.define{ library [job_with_no_plan] }}. to raise_error "Empty job list"
+				job1 = build(:job, name: "job1")
+				job2 = build(:job, name: "job2")
+				expect { Pipeline.define{ add_jobs [job1, "NOT A JOB", job2] }}.to raise_error "Job list must be an array of Job objects"
 			end
 		end
 	end
 
 	describe "building simple pipelines" do
+
+		context "given no jobs" do
+			it "raises an error" do
+				job = build :job
+				expect { Pipeline.define{ library [job] }}.to raise_error "Empty job list"
+			end
+		end
 
 		context "pipeline with one job" do
 			it "resolves a pipeline with one job" do
@@ -76,8 +109,7 @@ describe Pipeline do
 				job3 = build(:job, name: "job3")
 
 				expect { Pipeline.define{
-					add_job job1
-					add_job job2
+					add_jobs [job1, job2]
 					library [job1, job2, job3]
 				}}.not_to raise_error
 			end
@@ -103,8 +135,7 @@ describe Pipeline do
 				silly_job =   build(:job, name: "silly_job")
 
 				expect { Pipeline.define{
-					add_job mystery_job
-					add_job awesome_job
+					add_jobs [mystery_job, awesome_job]
 					library [fancy_job, awesome_job, silly_job]
 				}}.to raise_error "Missing job: mystery_job"
 			end
