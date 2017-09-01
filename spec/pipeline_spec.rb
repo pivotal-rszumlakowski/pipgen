@@ -95,10 +95,12 @@ describe Pipeline do
 			it "resolves a pipeline with one job" do
 				simple_job = build(:job, name: "simple_job")
 
-				expect { Pipeline.define{
+				p = Pipeline.define do
 					add_job simple_job
 					library [simple_job]
-				}}.not_to raise_error
+				end
+
+				expect(p.job_order).to contain_exactly("simple_job")
 			end
 		end
 
@@ -108,10 +110,47 @@ describe Pipeline do
 				job2 = build(:job, name: "job2")
 				job3 = build(:job, name: "job3")
 
-				expect { Pipeline.define{
+				p = Pipeline.define do
 					add_jobs [job1, job2]
 					library [job1, job2, job3]
-				}}.not_to raise_error
+				end
+
+				expect(p.job_order).to contain_exactly("job1", "job2")
+			end
+		end
+
+		context "pipeline with one job that depends on another job in its library" do
+			it "resolves the pipeline of two jobs" do
+				job0 = build(:job, name: "job0")
+				job1 = Job.new(YAML.load("
+---
+name: job1
+plan:
+- get: get0
+  passed: [job0]"))
+
+  				p = Pipeline.define do
+					add_job job1 # depends on job0
+					library [job0, job1]
+				end
+				
+				expect(p.job_order).to contain_exactly("job0", "job1")
+			end
+		end
+
+		context "pipeline with a job that depends on another job that is missing from its library" do
+			it "raises an error" do
+				job1 = Job.new(YAML.load("
+---
+name: job1
+plan:
+- get: get0
+  passed: [job0]"))
+  				expect { Pipeline.define do
+					add_job job1 # depends on missing job0
+					library [job1]
+				end }.to raise_error "Job 'job1' depends on missing job: 'job0'"
+
 			end
 		end
 

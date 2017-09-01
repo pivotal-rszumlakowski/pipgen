@@ -95,15 +95,11 @@ badd +1 spec/pipeline_spec.rb
 badd +1 spec/job_spec.rb
 badd +1 spec/factories/jobs.rb
 badd +1 lib/job.rb
-badd +0 lib/pipeline.rb
+badd +1 lib/pipeline.rb
 argglobal
 silent! argdel *
 edit spec/factories/jobs.rb
 set splitbelow splitright
-wincmd _ | wincmd |
-vsplit
-1wincmd h
-wincmd w
 wincmd _ | wincmd |
 split
 wincmd _ | wincmd |
@@ -124,136 +120,12 @@ set nosplitbelow
 set nosplitright
 wincmd t
 set winminheight=1 winheight=1 winminwidth=1 winwidth=1
-exe 'vert 1resize ' . ((&columns * 31 + 89) / 178)
+exe '1resize ' . ((&lines * 1 + 28) / 57)
 exe '2resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 2resize ' . ((&columns * 146 + 89) / 178)
 exe '3resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 3resize ' . ((&columns * 146 + 89) / 178)
 exe '4resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 4resize ' . ((&columns * 146 + 89) / 178)
 exe '5resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 5resize ' . ((&columns * 146 + 89) / 178)
-exe '6resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 6resize ' . ((&columns * 146 + 89) / 178)
-exe '7resize ' . ((&lines * 50 + 28) / 57)
-exe 'vert 7resize ' . ((&columns * 146 + 89) / 178)
-argglobal
-enew
-file NERD_tree_1
-cnoremap <buffer> <expr>  fugitive#buffer().rev()
-setlocal keymap=
-setlocal noarabic
-setlocal autoindent
-setlocal backupcopy=
-setlocal balloonexpr=
-setlocal nobinary
-setlocal nobreakindent
-setlocal breakindentopt=
-setlocal bufhidden=hide
-setlocal nobuflisted
-setlocal buftype=nofile
-setlocal nocindent
-setlocal cinkeys=0{,0},0),:,0#,!^F,o,O,e
-setlocal cinoptions=
-setlocal cinwords=if,else,while,do,for,switch
-setlocal colorcolumn=
-setlocal comments=s1:/*,mb:*,ex:*/,://,b:#,:%,:XCOMM,n:>,fb:-
-setlocal commentstring=/*%s*/
-setlocal complete=.,w,b,u,t,i
-setlocal concealcursor=
-setlocal conceallevel=0
-setlocal completefunc=
-setlocal nocopyindent
-setlocal cryptmethod=
-setlocal nocursorbind
-setlocal nocursorcolumn
-setlocal cursorline
-setlocal define=
-setlocal dictionary=
-setlocal nodiff
-setlocal equalprg=
-setlocal errorformat=
-setlocal noexpandtab
-if &filetype != 'nerdtree'
-setlocal filetype=nerdtree
-endif
-setlocal fixendofline
-setlocal foldcolumn=0
-setlocal foldenable
-setlocal foldexpr=0
-setlocal foldignore=#
-setlocal foldlevel=0
-setlocal foldmarker={{{,}}}
-setlocal foldmethod=manual
-setlocal foldminlines=1
-setlocal foldnestmax=20
-setlocal foldtext=foldtext()
-setlocal formatexpr=
-setlocal formatoptions=tqroc
-setlocal formatlistpat=^\\s*\\d\\+[\\]:.)}\\t\ ]\\s*
-setlocal formatprg=
-setlocal grepprg=
-setlocal iminsert=2
-setlocal imsearch=2
-setlocal include=
-setlocal includeexpr=
-setlocal indentexpr=
-setlocal indentkeys=0{,0},:,0#,!^F,o,O,e
-setlocal noinfercase
-setlocal iskeyword=@,48-57,_,192-255
-setlocal keywordprg=
-setlocal nolinebreak
-setlocal nolisp
-setlocal lispwords=
-setlocal nolist
-setlocal nomacmeta
-setlocal makeencoding=
-setlocal makeprg=
-setlocal matchpairs=(:),{:},[:],<:>
-setlocal modeline
-setlocal nomodifiable
-setlocal nrformats=hex
-setlocal nonumber
-setlocal numberwidth=4
-setlocal omnifunc=
-setlocal path=
-setlocal nopreserveindent
-setlocal nopreviewwindow
-setlocal quoteescape=\\
-setlocal noreadonly
-setlocal norelativenumber
-setlocal norightleft
-setlocal rightleftcmd=search
-setlocal noscrollbind
-setlocal shiftwidth=4
-setlocal noshortname
-setlocal signcolumn=auto
-setlocal nosmartindent
-setlocal softtabstop=0
-setlocal nospell
-setlocal spellcapcheck=[.?!]\\_[\\])'\"\	\ ]\\+
-setlocal spellfile=
-setlocal spelllang=en
-setlocal statusline=%{exists('b:NERDTreeRoot')?b:NERDTreeRoot.path.str():''}
-setlocal suffixesadd=
-setlocal noswapfile
-setlocal synmaxcol=3000
-if &syntax != 'nerdtree'
-setlocal syntax=nerdtree
-endif
-setlocal tabstop=4
-setlocal tagcase=
-setlocal tags=./tags,~/cfmobile/pipgen/.git/tags
-setlocal textwidth=0
-setlocal thesaurus=
-setlocal noundofile
-setlocal undolevels=-123456
-setlocal nowinfixheight
-setlocal winfixwidth
-set nowrap
-setlocal nowrap
-setlocal wrapmargin=0
-wincmd w
+exe '6resize ' . ((&lines * 49 + 28) / 57)
 argglobal
 cnoremap <buffer> <expr>  fugitive#buffer().rev()
 setlocal keymap=
@@ -370,11 +242,11 @@ set nowrap
 setlocal nowrap
 setlocal wrapmargin=0
 silent! normal! zE
-let s:l = 1 - ((0 * winheight(0) + 0) / 0)
+let s:l = 2 - ((0 * winheight(0) + 0) / 1)
 if s:l < 1 | let s:l = 1 | endif
 exe s:l
 normal! zt
-1
+2
 normal! 0
 wincmd w
 argglobal
@@ -990,27 +862,19 @@ set nowrap
 setlocal nowrap
 setlocal wrapmargin=0
 silent! normal! zE
-let s:l = 1 - ((0 * winheight(0) + 25) / 50)
+let s:l = 35 - ((34 * winheight(0) + 24) / 49)
 if s:l < 1 | let s:l = 1 | endif
 exe s:l
 normal! zt
-1
-normal! 03|
+35
+normal! 0
 wincmd w
-7wincmd w
-exe 'vert 1resize ' . ((&columns * 31 + 89) / 178)
+exe '1resize ' . ((&lines * 1 + 28) / 57)
 exe '2resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 2resize ' . ((&columns * 146 + 89) / 178)
 exe '3resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 3resize ' . ((&columns * 146 + 89) / 178)
 exe '4resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 4resize ' . ((&columns * 146 + 89) / 178)
 exe '5resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 5resize ' . ((&columns * 146 + 89) / 178)
-exe '6resize ' . ((&lines * 0 + 28) / 57)
-exe 'vert 6resize ' . ((&columns * 146 + 89) / 178)
-exe '7resize ' . ((&lines * 50 + 28) / 57)
-exe 'vert 7resize ' . ((&columns * 146 + 89) / 178)
+exe '6resize ' . ((&lines * 49 + 28) / 57)
 tabnext 1
 if exists('s:wipebuf')
   silent exe 'bwipe ' . s:wipebuf
