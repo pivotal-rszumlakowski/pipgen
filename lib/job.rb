@@ -32,6 +32,10 @@ class Job
 		@depends_on.uniq!
 	end
 
+	def to_s
+		@name
+	end
+
 	private
 
 	def plan_aggregate_items

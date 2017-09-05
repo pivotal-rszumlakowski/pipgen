@@ -45,28 +45,77 @@ class Pipeline
 		raise "Empty job list" if @jobs.nil? or @jobs.empty? and not @library.nil?
 		raise "Empty job library" if @library.nil? or @library.empty? and not @jobs.nil?
 
-		verify_no_missing_jobs!
+		@dag = build_dag @jobs, @library
 
-		@job_order = determine_job_order
+		@job_order = determine_job_order @dag
 
 		return self
 	end
 
 	private
 
-	def verify_no_missing_jobs!
-		@jobs.each do |j|
-			raise "Missing job: " + j.name unless @library.any?{ |i| i.name == j.name }
+	class DagNode
+
+		attr_reader :name, :job, :depends_on
+
+		def initialize(j)
+			raise "Must provide a job!" unless j.is_a? Job
+			@job = j
+			@name = j.name
+			@depends_on = []
+		end
+
+		def add_dependency(name_of_dependency)
+			# TODO - verify that these dependencies get added. perhaps at the same time we build the graph edges?
+			@depends_on << name_of_dependency
+		end
+
+		def to_s
+			@name
+		end
+
+		def self.list_to_s(nodes)
+			"[" + nodes.map{ |n| n.to_s }.join(", ") + "]"
 		end
 	end
 
-	def determine_job_order
+	def build_dag(jobs, library, dependent_job = nil)
+
+		dag_nodes = []
+
+		jobs.each do |j|
+			
+			resolved_job = resolve_job j, library, dependent_job
+			new_node = DagNode.new resolved_job
+			dag_nodes << new_node
+
+			if not resolved_job.depends_on.empty?
+				dependent_dag_nodes = build_dag j.depends_on, library, j
+				dag_nodes = dependent_dag_nodes.concat(dag_nodes) unless dependent_dag_nodes.empty?
+			end
+		end
+
+		return dag_nodes
+	end
+
+	def resolve_job(job, library, dependent_job)
+		if job.is_a? Job
+			raise "Missing job: " + job.name unless @library.any?{ |l| l.name == job.name }
+			return job
+		elsif job.is_a? String
+			resolved_job = @library.find{ |l| l.name == job }
+			raise "Job '#{dependent_job}' depends on missing job: '#{job}'" if resolved_job.nil?
+			return resolved_job
+		else
+			raise "You must provide a Job object or String with a job name to the 'resolve_job' method!"
+		end
+	end
+
+	def determine_job_order dag
 		result = []
-		@jobs.each do |j|
+		dag.each do |j|
 			result << j.name
 		end
 		return result
 	end
-
-
 end
