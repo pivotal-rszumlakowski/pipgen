@@ -7,6 +7,27 @@ end
 
 EMPTY_JOB = {}
 
+def build_get(name, passed_job_names)
+	if passed_job_names.nil? or passed_job_names.empty?
+		return "- get: #{name}\n"
+	else
+		return "- get: #{name}\n  passed: [#{passed_job_names.join(", ")}]\n"
+	end
+end
+
+def build_job(name = "my_job_name", gets = [])
+	
+	yaml = "---\nname: #{name}\n"
+
+	unless (gets.nil? or gets.empty?)
+		yaml += "plan:\n" + gets.join("\n")
+	end
+
+	#puts "### #{yaml}"
+
+	return Job.new(YAML.load(yaml))
+end
+
 JOB_WITH_ONLY_NAME = YAML.load "name: awesome_job"
 
 JOB_WITH_EMPTY_PLAN = YAML.load "name: empty_plan_job\nplan:"

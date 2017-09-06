@@ -75,8 +75,8 @@ describe Pipeline do
 
 		context "given an array with non-Job objects" do
 			it "raises an error" do
-				job1 = build(:job, name: "job1")
-				job2 = build(:job, name: "job2")
+				job1 = build_job "job1"
+				job2 = build_job "job2"
 				expect { Pipeline.define{ add_jobs [job1, "NOT A JOB", job2] }}.to raise_error "Job list must be an array of Job objects"
 			end
 		end
@@ -86,14 +86,14 @@ describe Pipeline do
 
 		context "given no jobs" do
 			it "raises an error" do
-				job = build :job
+				job = build_job
 				expect { Pipeline.define{ library [job] }}.to raise_error "Empty job list"
 			end
 		end
 
 		context "pipeline with one job" do
 			it "resolves a pipeline with one job" do
-				simple_job = build(:job, name: "simple_job")
+				simple_job = build_job "simple_job"
 
 				p = Pipeline.define do
 					add_job simple_job
@@ -106,9 +106,9 @@ describe Pipeline do
 
 		context "pipeline with two jobs and three jobs in its library" do
 			it "resolves a pipeline with one job" do
-				job1 = build(:job, name: "job1")
-				job2 = build(:job, name: "job2")
-				job3 = build(:job, name: "job3")
+				job1 = build_job "job1"
+				job2 = build_job "job2"
+				job3 = build_job "job3"
 
 				p = Pipeline.define do
 					add_jobs [job1, job2]
@@ -121,13 +121,9 @@ describe Pipeline do
 
 		context "pipeline with one job that depends on another job in its library" do
 			it "resolves the pipeline of two jobs" do
-				job0 = build(:job, name: "job0")
-				job1 = Job.new(YAML.load("
----
-name: job1
-plan:
-- get: get0
-  passed: [job0]"))
+
+				job0 = build_job "job0"
+				job1 = build_job "job1", [build_get("get0", ["job0"])]
 
   				p = Pipeline.define do
 					add_job job1 # depends on job0
@@ -140,12 +136,9 @@ plan:
 
 		context "pipeline with a job that depends on another job that is missing from its library" do
 			it "raises an error" do
-				job1 = Job.new(YAML.load("
----
-name: job1
-plan:
-- get: get0
-  passed: [job0]"))
+
+				job1 = build_job "job1", [build_get("get0", ["job0"])]
+
   				expect { Pipeline.define do
 					add_job job1 # depends on missing job0
 					library [job1]
@@ -156,8 +149,8 @@ plan:
 
 		context "missing job from job_library" do
 			it "raises an error if the pipeline definition requests a non-existent job" do
-				missing_job = build(:job, name: "missing_job")
-				fancy_job = build(:job, name: "fancy_job")
+				missing_job = build_job "missing_job"
+				fancy_job =   build_job "fancy_job"
 
 				expect { Pipeline.define{
 					add_job missing_job
@@ -168,10 +161,10 @@ plan:
 
 		context "one missing job and one found job" do
 			it "raises an error if the pipeline definition requests a non-existent job" do
-				mystery_job = build(:job, name: "mystery_job")
-				fancy_job =   build(:job, name: "fancy_job")
-				awesome_job = build(:job, name: "awesome_job")
-				silly_job =   build(:job, name: "silly_job")
+				mystery_job = build_job "mystery_job"
+				fancy_job =   build_job "fancy_job"
+				awesome_job = build_job "awesome_job"
+				silly_job =   build_job "silly_job"
 
 				expect { Pipeline.define{
 					add_jobs [mystery_job, awesome_job]
