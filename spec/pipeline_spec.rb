@@ -37,6 +37,15 @@ describe Pipeline do
 				expect { Pipeline.define{ library [job1, "NOT A JOB", job2] }}.to raise_error "Job library must be an array of Job objects"
 			end
 		end
+
+		context "given an array with duplicate jobs" do
+			it "raises an error" do
+				a_job = build_job "job1"
+				different_job = build_job "job2"
+				duplicate_job = build_job "job1"
+				expect { Pipeline.define{ library [a_job, different_job, duplicate_job] }}.to raise_error "Duplicated job in library: 'job1'"
+			end
+		end
 	end
 
 	describe "add_job method" do
@@ -131,6 +140,45 @@ describe Pipeline do
 				end
 				
 				expect(p.job_order).to contain_exactly("job0", "job1")
+			end
+		end
+
+		context "pipeline with two jobs and each depend on three different other jobs in the library" do
+			it "resolves the pipeline of two jobs" do
+				job00 = build_job "job00"
+				job01 = build_job "job01"
+				job02 = build_job "job02"
+				job10 = build_job "job10"
+				job11 = build_job "job11"
+				job12 = build_job "job12"
+
+				job0 = build_job "job0", [build_get("get0", ["job00", "job01", "job02"])]
+				job1 = build_job "job1", [build_get("get1", ["job10", "job11", "job12"])]
+
+				p = Pipeline.define do
+					add_jobs [job0, job1]
+					library [job0, job1, job00, job01, job02, job10, job11, job12]
+				end
+
+				expect(p.job_order).to contain_exactly("job0", "job1", "job00", "job01", "job02", "job10", "job11", "job12")
+			end
+		end
+
+		context "pipeline with two jobs and each depend on three of the same jobs in the library" do
+			it "resolves the pipeline of two jobs" do
+				job00 = build_job "job00"
+				job01 = build_job "job01"
+				job02 = build_job "job02"
+
+				job0 = build_job "job0", [build_get("get0", ["job00", "job01", "job02"])]
+				job1 = build_job "job1", [build_get("get1", ["job00", "job01", "job02"])]
+
+				p = Pipeline.define do
+					add_jobs [job0, job1]
+					library [job0, job1, job00, job01, job02]
+				end
+
+				expect(p.job_order).to contain_exactly("job0", "job1", "job00", "job01", "job02")
 			end
 		end
 

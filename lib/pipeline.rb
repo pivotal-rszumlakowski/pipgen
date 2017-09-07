@@ -29,6 +29,13 @@ class Pipeline
 		raise "Empty job library" if library.empty?
 		raise "Job library must be an array of Job objects" unless library.is_a? Array
 		raise "Job library must be an array of Job objects" if library.any? {|j| not j.is_a? Job}
+
+		# Ensure each job in the library has a unique name
+		library.each { |job|
+			num_instances = library.count { |other_job| job.name == other_job.name }
+			raise "Duplicated job in library: '#{job.name}'" if num_instances > 1
+		}
+		
 		@library = library
 	end
 
@@ -46,6 +53,8 @@ class Pipeline
 		raise "Empty job library" if @library.nil? or @library.empty? and not @jobs.nil?
 
 		@dag = build_dag @jobs, @library
+
+		@dag.uniq! { |job| job.name }
 
 		@job_order = determine_job_order @dag
 
@@ -100,8 +109,9 @@ class Pipeline
 
 	def resolve_job(job, library, dependent_job)
 		if job.is_a? Job
-			raise "Missing job: " + job.name unless @library.any?{ |l| l.name == job.name }
-			return job
+			resolved_job = @library.find{ |l| l.name == job.name }
+			raise "Missing job: " + job.name if resolved_job.nil?
+			return resolved_job
 		elsif job.is_a? String
 			resolved_job = @library.find{ |l| l.name == job }
 			raise "Job '#{dependent_job}' depends on missing job: '#{job}'" if resolved_job.nil?
