@@ -12,29 +12,23 @@ describe Pipeline do
 	end
 
 	describe "library method" do
-		context "given nil job library" do
-			it "raises an error" do
-				expect { Pipeline.define{ library nil }}.to raise_error "Nil job library"
-			end
-		end
-
-		context "given a non-array job library" do
-			it "raises an error" do
-				expect { Pipeline.define{ library "NOT AN ARRAY" }}.to raise_error "Job library must be an array of Job objects"
-			end
-		end
-
 		context "given empty job library" do
 			it "raises an error" do
-				expect { Pipeline.define{ library [] }}.to raise_error "Empty job library"
+				expect { Pipeline.define{ library }}.to raise_error "Empty job library"
+			end
+		end
+
+		context "given nil job library" do
+			it "raises an error" do
+				expect { Pipeline.define{ library nil }}.to raise_error "Job library must be an array of Job objects"
 			end
 		end
 
 		context "given an array with a non-Job object" do
 			it "raises an error" do
-				job1 = build(:job, name: "job1")
-				job2 = build(:job, name: "job2")
-				expect { Pipeline.define{ library [job1, "NOT A JOB", job2] }}.to raise_error "Job library must be an array of Job objects"
+				job1 = build_job "job1"
+				job2 = build_job "job2"
+				expect { Pipeline.define{ library job1, "NOT A JOB", job2 }}.to raise_error "Job library must be an array of Job objects"
 			end
 		end
 
@@ -43,7 +37,7 @@ describe Pipeline do
 				a_job = build_job "job1"
 				different_job = build_job "job2"
 				duplicate_job = build_job "job1"
-				expect { Pipeline.define{ library [a_job, different_job, duplicate_job] }}.to raise_error "Duplicated job in library: 'job1'"
+				expect { Pipeline.define{ library a_job, different_job, duplicate_job }}.to raise_error "Duplicated job in library: 'job1'"
 			end
 		end
 	end
@@ -51,7 +45,7 @@ describe Pipeline do
 	describe "add_job method" do
 		context "given no job library" do
 			it "raises an error" do
-				job = build :job
+				job = build_job
 				expect { Pipeline.define{ add_job job }}.to raise_error "Empty job library"
 			end
 		end
@@ -70,15 +64,15 @@ describe Pipeline do
 	end
 
 	describe "add_jobs method" do
-		context "given nil" do
+		context "given an empty list" do
 			it "raises an error" do
-				expect { Pipeline.define{ add_jobs nil }}.to  raise_error "Nil job list"
+				expect { Pipeline.define{ add_jobs }}.to raise_error "Empty job list"
 			end
 		end
 
-		context "given a non-array job list" do
+		context "given nil" do
 			it "raises an error" do
-				expect { Pipeline.define{ add_jobs "NOT AN ARRAY" }}.to raise_error "Job list must be an array of Job objects"
+				expect { Pipeline.define{ add_jobs nil }}.to raise_error "Job list must be an array of Job objects"
 			end
 		end
 
@@ -86,7 +80,7 @@ describe Pipeline do
 			it "raises an error" do
 				job1 = build_job "job1"
 				job2 = build_job "job2"
-				expect { Pipeline.define{ add_jobs [job1, "NOT A JOB", job2] }}.to raise_error "Job list must be an array of Job objects"
+				expect { Pipeline.define{ add_jobs job1, "NOT A JOB", job2 }}.to raise_error "Job list must be an array of Job objects"
 			end
 		end
 	end
@@ -96,7 +90,7 @@ describe Pipeline do
 		context "given no jobs" do
 			it "raises an error" do
 				job = build_job
-				expect { Pipeline.define{ library [job] }}.to raise_error "Empty job list"
+				expect { Pipeline.define{ library job }}.to raise_error "Empty job list"
 			end
 		end
 
@@ -106,7 +100,7 @@ describe Pipeline do
 
 				p = Pipeline.define do
 					add_job simple_job
-					library [simple_job]
+					library simple_job
 				end
 
 				expect(p.job_order).to contain_exactly("simple_job")
@@ -120,8 +114,8 @@ describe Pipeline do
 				job3 = build_job "job3"
 
 				p = Pipeline.define do
-					add_jobs [job1, job2]
-					library [job1, job2, job3]
+					add_jobs job1, job2
+					library job1, job2, job3
 				end
 
 				expect(p.job_order).to contain_exactly("job1", "job2")
@@ -136,7 +130,7 @@ describe Pipeline do
 
   				p = Pipeline.define do
 					add_job job1 # depends on job0
-					library [job0, job1]
+					library job0, job1
 				end
 				
 				expect(p.job_order).to contain_exactly("job0", "job1")
@@ -156,8 +150,8 @@ describe Pipeline do
 				job1 = build_job "job1", [build_get("get1", ["job10", "job11", "job12"])]
 
 				p = Pipeline.define do
-					add_jobs [job0, job1]
-					library [job0, job1, job00, job01, job02, job10, job11, job12]
+					add_jobs job0, job1
+					library job0, job1, job00, job01, job02, job10, job11, job12
 				end
 
 				expect(p.job_order).to contain_exactly("job0", "job1", "job00", "job01", "job02", "job10", "job11", "job12")
@@ -174,8 +168,8 @@ describe Pipeline do
 				job1 = build_job "job1", [build_get("get1", ["job00", "job01", "job02"])]
 
 				p = Pipeline.define do
-					add_jobs [job0, job1]
-					library [job0, job1, job00, job01, job02]
+					add_jobs job0, job1
+					library job0, job1, job00, job01, job02
 				end
 
 				expect(p.job_order).to contain_exactly("job0", "job1", "job00", "job01", "job02")
@@ -197,7 +191,7 @@ describe Pipeline do
 
 				p = Pipeline.define do
 					add_job job0
-					library [job0, job00, job01, job02, job000, job001, job002, job003, job004, job005]
+					library job0, job00, job01, job02, job000, job001, job002, job003, job004, job005
 				end
 
 				expect(p.job_order).to contain_exactly("job0", "job00", "job01", "job02", "job000", "job001", "job002", "job003", "job004", "job005")
@@ -211,7 +205,7 @@ describe Pipeline do
 
   				expect { Pipeline.define do
 					add_job job1 # depends on missing job0
-					library [job1]
+					library job1
 				end }.to raise_error "Job 'job1' depends on missing job: 'job0'"
 
 			end
@@ -224,7 +218,7 @@ describe Pipeline do
 
 				expect { Pipeline.define{
 					add_job missing_job
-					library [fancy_job]
+					library fancy_job
 				}}.to raise_error "Missing job: missing_job"
 			end
 		end
@@ -237,8 +231,8 @@ describe Pipeline do
 				silly_job =   build_job "silly_job"
 
 				expect { Pipeline.define{
-					add_jobs [mystery_job, awesome_job]
-					library [fancy_job, awesome_job, silly_job]
+					add_jobs mystery_job, awesome_job
+					library fancy_job, awesome_job, silly_job
 				}}.to raise_error "Missing job: mystery_job"
 			end
 		end
