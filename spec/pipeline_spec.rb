@@ -182,6 +182,28 @@ describe Pipeline do
 			end
 		end
 
+		context "two levels of dependencies in the pipeline" do
+			it "resolves the pipeline and includes all the dependencies" do
+				job0 = build_job  "job0",  [build_get("get00", ["job00"]), build_get("get01", ["job01", "job02"])]
+				job00 = build_job "job00", [build_get("get000", ["job000", "job001"]), build_get("get001", ["job002"])] 
+				job01 = build_job "job01", [build_get("get002", ["job000", "job001"]), build_get("get003", ["job002"])] 
+				job02 = build_job "job02", [build_get("get004", ["job003", "job004"]), build_get("get003", ["job005"])] 
+				job000 = build_job "job000"
+				job001 = build_job "job001"
+				job002 = build_job "job002"
+				job003 = build_job "job003"
+				job004 = build_job "job004"
+				job005 = build_job "job005"
+
+				p = Pipeline.define do
+					add_job job0
+					library [job0, job00, job01, job02, job000, job001, job002, job003, job004, job005]
+				end
+
+				expect(p.job_order).to contain_exactly("job0", "job00", "job01", "job02", "job000", "job001", "job002", "job003", "job004", "job005")
+			end
+		end
+
 		context "pipeline with a job that depends on another job that is missing from its library" do
 			it "raises an error" do
 

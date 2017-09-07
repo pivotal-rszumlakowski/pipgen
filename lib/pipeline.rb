@@ -99,7 +99,7 @@ class Pipeline
 			dag_nodes << new_node
 
 			if not resolved_job.depends_on.empty?
-				dependent_dag_nodes = build_dag j.depends_on, library, j
+				dependent_dag_nodes = build_dag resolved_job.depends_on, library, resolved_job
 				dag_nodes = dependent_dag_nodes.concat(dag_nodes) unless dependent_dag_nodes.empty?
 			end
 		end
@@ -122,6 +122,10 @@ class Pipeline
 	end
 
 	def determine_job_order dag
+
+		# TODO - make sure the dag has no cycles
+		# TODO - use the external `tsort` program to topographically sort the graph nodes
+
 		result = []
 		dag.each do |j|
 			result << j.name
