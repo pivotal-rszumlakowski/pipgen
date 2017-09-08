@@ -5,5 +5,6 @@ group :development do
 	gem 'guard'
 	gem 'guard-rspec'
 	gem 'factory_girl'
+	gem 'pry-byebug'
 end
 

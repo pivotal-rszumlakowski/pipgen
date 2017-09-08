@@ -1,4 +1,5 @@
 require 'job'
+require 'pry'
 
 class Pipeline
 
@@ -50,7 +51,8 @@ class Pipeline
 		raise "Empty job list" if @jobs.nil? or @jobs.empty? and not @library.nil?
 		raise "Empty job library" if @library.nil? or @library.empty? and not @jobs.nil?
 
-		@dag = build_dag @jobs, @library
+		@dag = []
+		build_dag @jobs, @library, @dag
 
 		@dag.uniq! { |job| job.name }
 
@@ -82,27 +84,22 @@ class Pipeline
 		end
 
 		def self.list_to_s(nodes)
-			"[" + nodes.map{ |n| n.to_s }.join(", ") + "]"
+			"[" + nodes.map{ |n| n.name }.join(", ") + "]"
 		end
 	end
 
-	def build_dag(jobs, library, dependent_job = nil)
-
-		dag_nodes = []
-
+	def build_dag(jobs, library, dag, dependent_job = nil)
+		
 		jobs.each do |j|
-			
+
 			resolved_job = resolve_job j, library, dependent_job
-			new_node = DagNode.new resolved_job
-			dag_nodes << new_node
 
-			if not resolved_job.depends_on.empty?
-				dependent_dag_nodes = build_dag resolved_job.depends_on, library, resolved_job
-				dag_nodes = dependent_dag_nodes.concat(dag_nodes) unless dependent_dag_nodes.empty?
-			end
+			next if dag.any? { |d| d.name == resolved_job.name } # Don't add duplicate nodes
+			
+			dag << DagNode.new(resolved_job)
+
+			build_dag(resolved_job.depends_on, library, dag, resolved_job) unless resolved_job.depends_on.empty?
 		end
-
-		return dag_nodes
 	end
 
 	def resolve_job(job, library, dependent_job)

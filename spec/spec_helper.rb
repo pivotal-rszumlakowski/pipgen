@@ -7,7 +7,7 @@ end
 
 EMPTY_JOB = {}
 
-def build_get(name, passed_job_names)
+def build_get(name, *passed_job_names)
 	if passed_job_names.nil? or passed_job_names.empty?
 		return "- get: #{name}\n"
 	else
@@ -15,7 +15,7 @@ def build_get(name, passed_job_names)
 	end
 end
 
-def build_job(name = "my_job_name", gets = [])
+def build_job(name = "my_job_name", *gets)
 	
 	yaml = "---\nname: #{name}\n"
 

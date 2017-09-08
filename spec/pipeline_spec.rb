@@ -126,7 +126,7 @@ describe Pipeline do
 			it "resolves the pipeline of two jobs" do
 
 				job0 = build_job "job0"
-				job1 = build_job "job1", [build_get("get0", ["job0"])]
+				job1 = build_job "job1", build_get("get0", "job0")
 
   				p = Pipeline.define do
 					add_job job1 # depends on job0
@@ -146,8 +146,8 @@ describe Pipeline do
 				job11 = build_job "job11"
 				job12 = build_job "job12"
 
-				job0 = build_job "job0", [build_get("get0", ["job00", "job01", "job02"])]
-				job1 = build_job "job1", [build_get("get1", ["job10", "job11", "job12"])]
+				job0 = build_job "job0", build_get("get0", "job00", "job01", "job02")
+				job1 = build_job "job1", build_get("get1", "job10", "job11", "job12")
 
 				p = Pipeline.define do
 					add_jobs job0, job1
@@ -164,8 +164,8 @@ describe Pipeline do
 				job01 = build_job "job01"
 				job02 = build_job "job02"
 
-				job0 = build_job "job0", [build_get("get0", ["job00", "job01", "job02"])]
-				job1 = build_job "job1", [build_get("get1", ["job00", "job01", "job02"])]
+				job0 = build_job "job0", build_get("get0", "job00", "job01", "job02")
+				job1 = build_job "job1", build_get("get1", "job00", "job01", "job02")
 
 				p = Pipeline.define do
 					add_jobs job0, job1
@@ -178,10 +178,10 @@ describe Pipeline do
 
 		context "two levels of dependencies in the pipeline" do
 			it "resolves the pipeline and includes all the dependencies" do
-				job0 = build_job  "job0",  [build_get("get00", ["job00"]), build_get("get01", ["job01", "job02"])]
-				job00 = build_job "job00", [build_get("get000", ["job000", "job001"]), build_get("get001", ["job002"])] 
-				job01 = build_job "job01", [build_get("get002", ["job000", "job001"]), build_get("get003", ["job002"])] 
-				job02 = build_job "job02", [build_get("get004", ["job003", "job004"]), build_get("get003", ["job005"])] 
+				job0 = build_job  "job0",  build_get("get00", "job00"), build_get("get01", "job01", "job02")
+				job00 = build_job "job00", build_get("get000", "job000", "job001"), build_get("get001", "job002")
+				job01 = build_job "job01", build_get("get002", "job000", "job001"), build_get("get003", "job002")
+				job02 = build_job "job02", build_get("get004", "job003", "job004"), build_get("get003", "job005")
 				job000 = build_job "job000"
 				job001 = build_job "job001"
 				job002 = build_job "job002"
@@ -198,10 +198,22 @@ describe Pipeline do
 			end
 		end
 
+		context "pipeline with a circular dependency" do
+			it "raises an error" do
+				job0 = build_job "job0", build_get("get0", "job1")
+				job1 = build_job "job1", build_get("get1", "job0")
+
+				expect { Pipeline.define do
+					add_jobs job0, job1
+					library job0, job1
+				end }.to raise_error "Found a circular dependency!"
+			end
+		end
+
 		context "pipeline with a job that depends on another job that is missing from its library" do
 			it "raises an error" do
 
-				job1 = build_job "job1", [build_get("get0", ["job0"])]
+				job1 = build_job "job1", build_get("get0", "job0")
 
   				expect { Pipeline.define do
 					add_job job1 # depends on missing job0
