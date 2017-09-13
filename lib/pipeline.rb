@@ -1,4 +1,5 @@
 require 'job'
+require 'dag'
 #require 'pry'
 
 class Pipeline
@@ -51,48 +52,18 @@ class Pipeline
 		raise "Empty job list" if @jobs.nil? or @jobs.empty? and not @library.nil?
 		raise "Empty job library" if @library.nil? or @library.empty? and not @jobs.nil?
 
-		@dag = []
+		@dag = Dag.new
 		build_dag @jobs, @library, @dag # TODO move the dag into its own class
-		assign_dependencies @dag
+		@dag.assign_dependencies
 
-		raise "Found a circular dependency!" if has_cycle? @dag
+		raise "Found a circular dependency!" if @dag.has_cycle?
 
-		@job_order = determine_job_order @dag
+		@job_order = @dag.topological_sort
 
 		return self
 	end
 
 	private
-
-	# TODO - move into its own class
-	class DagNode
-
-		attr_reader :name, :job, :depends_on, :is_dependency_for
-
-		def initialize(j)
-			raise "Must provide a job!" unless j.is_a? Job
-			@job = j
-			@name = j.name
-			@depends_on = []
-			@is_dependency_for = []
-		end
-
-		def add_dependency(dependency)
-			@depends_on << dependency
-		end
-
-		def add_is_dependency_for(dependency)
-			@is_dependency_for << dependency
-		end
-
-		def to_s
-			@name
-		end
-
-		def self.list_to_s(nodes)
-			"[" + nodes.map{ |n| n.name }.join(", ") + "]"
-		end
-	end
 
 	def build_dag(jobs, library, dag, dependent_job = nil)
 		
@@ -100,9 +71,9 @@ class Pipeline
 
 			resolved_job = resolve_job j, library, dependent_job
 
-			next if dag.any? { |d| d.name == resolved_job.name } # Don't add duplicate nodes
+			next if dag.nodes.any? { |d| d.name == resolved_job.name } # Don't add duplicate nodes
 			
-			dag_node = DagNode.new(resolved_job)
+			dag_node = Dag::DagNode.new(resolved_job)
 
 			resolved_job.depends_on.each do |dependency|
 
@@ -112,29 +83,9 @@ class Pipeline
 				dag_node.add_dependency resolved_dependency
 			end
 
-			dag << dag_node
+			dag.nodes << dag_node
 			
 			build_dag(resolved_job.depends_on, library, dag, resolved_job) unless resolved_job.depends_on.empty?
-		end
-	end
-
-	# Builds all the directed graph edges in the reverse order of the dependencies provides.
-	# i.e.: edges will be directed from a job to the jobs that depends on them.
-	def assign_dependencies dag
-		dag.each do |dag_node|
-			dag_node.depends_on.each do |dependent_job|
-				dependent_dag_node = dag.find{ |d| d.name == dependent_job.name }
-				raise "Could not find node with name '#{dependent_job.name}' in dag!" if dependent_dag_node.nil?
-				dependent_dag_node.add_is_dependency_for dag_node
-			end
-		end
-	end
-
-	def print_dag dag
-		dag.each do |dag_node|
-			dag_node.is_dependency_for.each do |d|
-				puts "'#{dag_node.name}' --> '#{d.name}'"
-			end
 		end
 	end
 
@@ -153,36 +104,4 @@ class Pipeline
 		end
 	end
 
-	def has_cycle? dag
-
-		# Using example code here: http://www.geeksforgeeks.org/detect-cycle-in-a-graph/
-
-		# Initializes the 'visited' and 'rec_stack' lists to false for each node
-		visited = Hash[ dag.collect {|dag_node| [dag_node.name, false]} ]
-		rec_stack = Hash[ dag.collect {|dag_node| [dag_node.name, false]} ]
-
-		dag.any?{ |dag_node| is_cyclic_util(dag_node, visited, rec_stack) }
-	end
-
-	def is_cyclic_util dag_node, visited, rec_stack
-		unless visited[dag_node.name]
-			visited[dag_node.name] = true
-			rec_stack[dag_node.name] = true
-
-			return true if dag_node.is_dependency_for.any? do |d|
-				return true if !visited[d.name] && is_cyclic_util(d, visited, rec_stack)
-				rec_stack[d.name]
-			end
-
-		end
-		rec_stack[dag_node.name] = false
-		return false
-	end
-
-	def determine_job_order dag
-
-		# TODO - use the external `tsort` program to topographically sort the graph nodes
-
-		dag.collect{ |d| d.name }
-	end
 end
