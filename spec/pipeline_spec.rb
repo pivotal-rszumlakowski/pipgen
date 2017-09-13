@@ -306,13 +306,13 @@ describe Pipeline do
 				job8 = build_job "job8", build_get("get8a", "job7"), build_get("get8b", "job6")
 				job9 = build_job "job9", build_get("get9", "job8")
 
-				# 0 -> 1 -> 3 <- 6 -.       The cycle is 4 -> 5 -> 2
-				#  \         \ /  \  \
-				#   \        VV   v   v
-				#   `-> 2 -> 4 -> 7 -> 8
-				#       ^     `,        \
-				#      /      /          v
-				#      `- 5 <'            9
+				#  0 -> 1 -> 3 <- 6 ----.    The cycle is 4 -> 5 -> 2
+				#  |          \ /  \    |
+				#  \          VV   v    v
+				#  `---> 2 -> 4 -> 7 -> 8
+				#        ^    |         |
+				#       /     |         v
+				#       `- 5 <'         9
 
 				expect { Pipeline.define do
 					add_jobs job5, job9

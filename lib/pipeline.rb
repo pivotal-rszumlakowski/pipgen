@@ -45,6 +45,7 @@ class Pipeline
 		@jobs = nil
 		@library = nil
 		@job_order = nil
+		@dag = Dag.new
 	end
 
 	def make
@@ -52,8 +53,8 @@ class Pipeline
 		raise "Empty job list" if @jobs.nil? or @jobs.empty? and not @library.nil?
 		raise "Empty job library" if @library.nil? or @library.empty? and not @jobs.nil?
 
-		@dag = Dag.new
-		build_dag @jobs, @library, @dag # TODO move the dag into its own class
+		build_dag @jobs, @library, @dag
+
 		@dag.assign_dependencies
 
 		raise "Found a circular dependency!" if @dag.has_cycle?
@@ -71,9 +72,9 @@ class Pipeline
 
 			resolved_job = resolve_job j, library, dependent_job
 
-			next if dag.nodes.any? { |d| d.name == resolved_job.name } # Don't add duplicate nodes
+			next if dag.any? { |d| d.name == resolved_job.name } # Don't add duplicate nodes
 			
-			dag_node = Dag::DagNode.new(resolved_job)
+			dag_node = Dag::Node.new(resolved_job)
 
 			resolved_job.depends_on.each do |dependency|
 
@@ -83,7 +84,7 @@ class Pipeline
 				dag_node.add_dependency resolved_dependency
 			end
 
-			dag.nodes << dag_node
+			dag << dag_node
 			
 			build_dag(resolved_job.depends_on, library, dag, resolved_job) unless resolved_job.depends_on.empty?
 		end
