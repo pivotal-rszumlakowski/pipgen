@@ -198,18 +198,6 @@ describe Pipeline do
 			end
 		end
 
-		context "pipeline with a circular dependency" do
-			it "raises an error" do
-				job0 = build_job "job0", build_get("get0", "job1")
-				job1 = build_job "job1", build_get("get1", "job0")
-
-				expect { Pipeline.define do
-					add_jobs job0, job1
-					library job0, job1
-				end }.to raise_error "Found a circular dependency!"
-			end
-		end
-
 		context "pipeline with a job that depends on another job that is missing from its library" do
 			it "raises an error" do
 
@@ -248,6 +236,91 @@ describe Pipeline do
 				}}.to raise_error "Missing job: mystery_job"
 			end
 		end
+	end
+
+	describe "detecting cycles in the dependency graph" do
+
+		context "cycle with one job" do
+			it "raises an error" do
+				job0 = build_job "job0", build_get("get0", "job0")
+				
+				expect { Pipeline.define do
+					add_job job0
+					library job0
+				end }.to raise_error "Job 'job0' depends on itself"
+			end
+		end
+
+		context "cycle with two jobs" do
+			it "raises an error" do
+				job0 = build_job "job0", build_get("get0", "job1")
+				job1 = build_job "job1", build_get("get1", "job0")
+
+				expect { Pipeline.define do
+					add_jobs job0, job1
+					library job0, job1
+				end }.to raise_error "Found a circular dependency!"
+			end
+		end
+
+		context "cycle with three jobs" do
+			it "raises an error" do
+				job0 = build_job "job0", build_get("get0", "job1")
+				job1 = build_job "job1", build_get("get1", "job2")
+				job2 = build_job "job2", build_get("get2", "job0")
+
+				expect { Pipeline.define do
+					add_jobs job0, job1, job2
+					library job0, job1, job2
+				end }.to raise_error "Found a circular dependency!"
+			end
+		end
+
+		context "two disconnected subgraphs, each with one cycle" do
+			it "raises an error" do
+				job0 = build_job "job0", build_get("get0", "job1")
+				job1 = build_job "job1", build_get("get1", "job2")
+				job2 = build_job "job2", build_get("get2", "job0")
+				job3 = build_job "job3", build_get("get3", "job4")
+				job4 = build_job "job4", build_get("get4", "job5")
+				job5 = build_job "job5", build_get("get5", "job3")
+
+				expect { Pipeline.define do
+					add_jobs job0, job1, job2, job3, job4, job5
+					library job0, job1, job2, job3, job4, job5
+				end }.to raise_error "Found a circular dependency!"
+			end
+		end
+
+		context "something complicated" do
+			it "raises an error" do
+
+				job0 = build_job "job0"
+				job1 = build_job "job1", build_get("get1", "job0")
+				job2 = build_job "job2", build_get("get2a", "job0"), build_get("get2b", "job5")
+				job3 = build_job "job3", build_get("get3a", "job6"), build_get("get3b", "job1") 
+				job4 = build_job "job4", build_get("get4a", "job2"), build_get("get4b", "job3"), build_get("get4c", "job6")
+				job5 = build_job "job5", build_get("get5", "job4")
+				job6 = build_job "job6"
+				job7 = build_job "job7", build_get("get7a", "job4"), build_get("get7b", "job6")
+				job8 = build_job "job8", build_get("get8a", "job7"), build_get("get8b", "job6")
+				job9 = build_job "job9", build_get("get9", "job8")
+
+				# 0 -> 1 -> 3 <- 6 -.       The cycle is 4 -> 5 -> 2
+				#  \         \ /  \  \
+				#   \        VV   v   v
+				#   `-> 2 -> 4 -> 7 -> 8
+				#       ^     `,        \
+				#      /      /          v
+				#      `- 5 <'            9
+
+				expect { Pipeline.define do
+					add_jobs job5, job9
+					library job0, job1, job2, job3, job4, job5, job6, job7, job8, job9
+				end }.to raise_error "Found a circular dependency!"
+			end
+		end
+
 	end
 end
 

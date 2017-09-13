@@ -23,8 +23,6 @@ def build_job(name = "my_job_name", *gets)
 		yaml += "plan:\n" + gets.join("\n")
 	end
 
-	#puts "### #{yaml}"
-
 	return Job.new(YAML.load(yaml))
 end
 
