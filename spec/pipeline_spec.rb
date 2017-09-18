@@ -134,6 +134,8 @@ describe Pipeline do
 				end
 				
 				expect(p.job_order).to contain_exactly("job0", "job1")
+				
+				expect(p.job_order).to include_job("job0").and_be_before_job("job1")
 			end
 		end
 

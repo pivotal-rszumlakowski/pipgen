@@ -3,6 +3,8 @@ require 'yaml'
 RSpec.configure do |c|
   # filter_run is short-form alias for filter_run_including
   #c.filter_run :focus => true
+
+  Dir[File.expand_path(File.join(File.dirname(__FILE__),'support','**','*.rb'))].each {|f| require f}
 end
 
 EMPTY_JOB = {}
