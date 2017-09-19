@@ -119,6 +119,7 @@ describe Pipeline do
 				end
 
 				expect(p.job_order).to contain_exactly("job1", "job2")
+				expect(p.job_order).to include_job("job1").and_be_before_job("job2")
 			end
 		end
 
@@ -134,7 +135,6 @@ describe Pipeline do
 				end
 				
 				expect(p.job_order).to contain_exactly("job0", "job1")
-				
 				expect(p.job_order).to include_job("job0").and_be_before_job("job1")
 			end
 		end
@@ -157,6 +157,12 @@ describe Pipeline do
 				end
 
 				expect(p.job_order).to contain_exactly("job0", "job1", "job00", "job01", "job02", "job10", "job11", "job12")
+				expect(p.job_order).to include_job("job00").and_be_before_job("job0")
+				expect(p.job_order).to include_job("job01").and_be_before_job("job0")
+				expect(p.job_order).to include_job("job02").and_be_before_job("job0")
+				expect(p.job_order).to include_job("job10").and_be_before_job("job1")
+				expect(p.job_order).to include_job("job11").and_be_before_job("job1")
+				expect(p.job_order).to include_job("job12").and_be_before_job("job1")
 			end
 		end
 
@@ -175,6 +181,9 @@ describe Pipeline do
 				end
 
 				expect(p.job_order).to contain_exactly("job0", "job1", "job00", "job01", "job02")
+				expect(p.job_order).to include_job("job00").and_be_before_jobs(["job0", "job1"])
+				expect(p.job_order).to include_job("job01").and_be_before_jobs(["job0", "job1"])
+				expect(p.job_order).to include_job("job02").and_be_before_jobs(["job0", "job1"])
 			end
 		end
 
@@ -197,6 +206,12 @@ describe Pipeline do
 				end
 
 				expect(p.job_order).to contain_exactly("job0", "job00", "job01", "job02", "job000", "job001", "job002", "job003", "job004", "job005")
+				expect(p.job_order).to include_job("job000").and_be_before_jobs(["job00", "job01"])
+				expect(p.job_order).to include_job("job001").and_be_before_jobs(["job00", "job01"])
+				expect(p.job_order).to include_job("job002").and_be_before_jobs(["job00", "job01"])
+				expect(p.job_order).to include_job("job003").and_be_before_job("job02")
+				expect(p.job_order).to include_job("job004").and_be_before_job("job02")
+				expect(p.job_order).to include_job("job005").and_be_before_job("job02")
 			end
 		end
 

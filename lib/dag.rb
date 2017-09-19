@@ -1,3 +1,6 @@
+require 'open3'
+require 'pry'
+
 class Dag
 
 	include Enumerable
@@ -28,6 +31,26 @@ class Dag
 
 		def self.list_to_s(nodes)
 			"[" + nodes.map{ |n| n.name }.join(", ") + "]"
+		end
+	end
+
+	class Edge
+
+		attr_reader :from, :to
+
+		def initialize(from, to)
+			raise "from must be a Node" unless from.is_a? Node
+			raise "to must be a Node" unless to.is_a? Node
+			@from = from
+			@to = to
+		end
+
+		def to_s
+			"#{from.name}->#{to.name}"
+		end
+
+		def self.list_to_s(edges)
+			"[" + edges.map{ |e| e.to_s }.join(", ") + "]"
 		end
 	end
 
@@ -76,12 +99,44 @@ class Dag
 
 	def topological_sort
 
-		# TODO - use the external `tsort` program to topographically sort the graph nodes
+		# If there's only one node, then there's no more work to do.
+		return [@nodes.first.name] if @nodes.count == 1
 
-		@nodes.collect{ |node| node.name }
+		# First, collect all the nodes that have no dependencies.
+		nodes_with_no_dependencies = @nodes.select { |node| node.depends_on.empty? }
+		sorted_node_names = nodes_with_no_dependencies.map { |node| node.name }
+
+		# Next, use the external 'tsort' program to do a topographical sort of the remaining nodes
+		edges = get_edges @nodes
+		Open3.popen2("tsort") do |stdin, stdout, pid|
+
+			edges.each { |e| stdin.puts "#{e.from.name} #{e.to.name}" }
+			stdin.close
+
+			stdout.each_line do |node|
+				next if sorted_node_names.include? node.strip # Don't add nodes more than once
+				sorted_node_names << node.strip
+			end
+			stdout.close
+		end
+
+		#puts "### Read nodes: #{sorted_node_names}"
+
+		return sorted_node_names
 	end
 
 	private
+
+	def get_edges nodes
+		edges = []
+		nodes.each do |node|
+			node.is_dependency_for.each do |d|
+				edges << Edge.new(node, d)
+			end
+		end
+		edges
+	end
+	
 
 	def is_cyclic_util node, visited, rec_stack
 		unless visited[node.name]
