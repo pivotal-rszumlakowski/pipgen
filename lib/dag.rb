@@ -108,16 +108,16 @@ class Dag
 
 		# Next, use the external 'tsort' program to do a topographical sort of the remaining nodes
 		edges = get_edges @nodes
-		Open3.popen2("tsort") do |stdin, stdout, pid|
+		Open3.popen2("tsort") do |fin, fout|
 
-			edges.each { |e| stdin.puts "#{e.from.name} #{e.to.name}" }
-			stdin.close
+			edges.each { |e| fin.puts "#{e.from.name} #{e.to.name}" }
+			fin.close
 
-			stdout.each_line do |node|
+			fout.each_line do |node|
 				next if sorted_node_names.include? node.strip # Don't add nodes more than once
 				sorted_node_names << node.strip
 			end
-			stdout.close
+			fout.close
 		end
 
 		#puts "### Read nodes: #{sorted_node_names}"
