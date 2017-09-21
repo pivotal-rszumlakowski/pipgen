@@ -1,9 +1,6 @@
 class Job
 
-	attr_reader :job_hash
-	attr_reader :name
-	attr_reader :plan_gets
-	attr_reader :depends_on
+	attr_reader :job_hash, :name, :plan_gets, :plan_puts, :depends_on
 
 	def initialize(job_hash)
 
@@ -14,6 +11,7 @@ class Job
 
 		@name = @job_hash[:name]
 		@plan_gets = []
+		@plan_puts = []
 		@depends_on = []
 
 		return unless @job_hash.key? :plan
@@ -27,6 +25,8 @@ class Job
 			@plan_gets << get_item
 			@depends_on << get_item["passed"] if get_item.key?("passed")
 		}
+
+		@plan_puts = put_items(@job_hash[:plan])
 
 		@depends_on.flatten!
 		@depends_on.uniq!
@@ -44,5 +44,9 @@ class Job
 
 	def get_items(plan)
 		plan.select{ |item| item.key?("get") }
+	end
+
+	def put_items(plan)
+		plan.select{ |item| item.key?("put") }
 	end
 end
