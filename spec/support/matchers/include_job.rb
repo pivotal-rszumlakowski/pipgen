@@ -1,5 +1,6 @@
 require 'rspec/expectations'
 require 'pry'
+require 'job'
 
 RSpec.configure do |config|
   config.expect_with :rspec do |c|
@@ -9,10 +10,10 @@ end
 
 class IncludeJobMatcher
 
-	def initialize(expected_job)
-		@expected_job = expected_job
-		@later_jobs = []
-		@earlier_jobs = []
+	def initialize expected_job_name
+		@expected_job_name = expected_job_name
+		@later_job_names = []
+		@earlier_job_names = []
 		@actual_array = []
 	end
 
@@ -25,32 +26,32 @@ class IncludeJobMatcher
 
 	def does_not_match? actual_array
 		raise "Actual value must be an array" unless actual_array.is_a? Array
-		raise "before_job matcher not supported during negated matches" unless @later_jobs.empty?
-		raise "after_job matcher not supported during negated matches" unless @earlier_jobs.empty?
+		raise "before_job matcher not supported during negated matches" unless @later_job_names.empty?
+		raise "after_job matcher not supported during negated matches" unless @earlier_job_names.empty?
 		@actual_array = actual_array
 		(result, message) = negated_helper
 		return result
 	end
 
 	def and_be_before_job later_job
-		@later_jobs << later_job
+		@later_job_names << later_job
 		self
 	end
 
-	def and_be_before_jobs *later_jobs
-		raise "Expected value must be an array" unless later_jobs.is_a? Array
-		@later_jobs.concat later_jobs
+	def and_be_before_jobs *later_job_names
+		raise "Expected value must be an array" unless later_job_names.is_a? Array
+		@later_job_names.concat later_job_names
 		self
 	end
 
 	def and_be_after_job earlier_job
-		@earlier_jobs << earlier_job
+		@earlier_job_names << earlier_job
 		self
 	end
 
-	def and_be_after_jobs *earlier_jobs
-		raise "Expected value must be an array" unless earlier_jobs.is_a? Array
-		@earlier_jobs.concat earlier_jobs
+	def and_be_after_jobs *earlier_job_names
+		raise "Expected value must be an array" unless earlier_job_names.is_a? Array
+		@earlier_job_names.concat earlier_job_names
 		self
 	end
 
@@ -65,47 +66,47 @@ class IncludeJobMatcher
 	end
 
 	def description
-		"include job \"#{@expected_job}\""
+		"include job \"#{@expected_job_name}\""
 	end
 
 	private
 
 	def helper
 
-		return missing_job_result(@expected_job) unless @actual_array.include? @expected_job
+		return missing_job_result(@expected_job_name) unless @actual_array.find {|job| job.name == @expected_job_name}
 
-		expected_job_index = @actual_array.index @expected_job
+		expected_job_name_index = @actual_array.find_index {|job| job.name == @expected_job_name}
 
-		@later_jobs.each do |j|
-			return missing_job_result(j) unless @actual_array.include? j
-			j_index = @actual_array.index j
-			return bad_order_result(@expected_job, j) if expected_job_index >= j_index
+		@later_job_names.each do |j|
+			return missing_job_result(j) unless @actual_array.find {|job| job.name == j}
+			j_index = @actual_array.find_index {|job| job.name == j}
+			return bad_order_result(@expected_job_name, j) if expected_job_name_index >= j_index
 		end
 
-		@earlier_jobs.each do |j|
-			return missing_job_result(j) unless @actual_array.include? j
-			j_index = @actual_array.index j
-			return bad_order_result(j, @expected_job) if expected_job_index <= j_index
+		@earlier_job_names.each do |j|
+			return missing_job_result(j) unless @actual_array.find {|job| job.name == j}
+			j_index = @actual_array.find_index {|job| job.name == j}
+			return bad_order_result(j, @expected_job_name) if expected_job_name_index <= j_index
 		end
 
 		return good_result
 	end
 
 	def negated_helper
-		return found_job_result(@expected_job) if @actual_array.include? @expected_job
+		return found_job_result(@expected_job_name) if @actual_array.find {|job| job.name == @expected_job_name}
 		return good_result
 	end
 
 	def missing_job_result missing_job
-		[false, "expected job \"#{missing_job}\" to be in list #{@actual_array}"]
+		[false, "expected job \"#{missing_job}\" to be in list #{@actual_array.map{|job| job.name}}"]
 	end
 
 	def found_job_result found_job
-		[false, "expected job \"#{found_job}\" to not be in list #{@actual_array}"]
+		[false, "expected job \"#{found_job}\" to not be in list #{@actual_array.map {|job| job.name}}"]
 	end
 
-	def bad_order_result(first_expected_job, second_expected_job)
-		[false, "expected job \"#{first_expected_job}\" to be before job \"#{second_expected_job}\" in list #{@actual_array}"]
+	def bad_order_result(first_expected_job_name, second_expected_job_name)
+		[false, "expected job \"#{first_expected_job_name}\" to be before job \"#{second_expected_job_name}\" in list #{@actual_array.map{|job| job.name}}"]
 	end
 
 	def good_result
@@ -113,13 +114,18 @@ class IncludeJobMatcher
 	end
 end
 
-def include_job(*args)
+def include_job *args
 	IncludeJobMatcher.new(*args)
 end
 
-RSpec.describe ["job0", "job1", "job2", "job3"] do
-  it { is_expected.to include_job("job0") }
-  it { is_expected.to_not include_job("jobX") }
+job0 = Job.new({"name" => "job0"})
+job1 = Job.new({"name" => "job1"})
+job2 = Job.new({"name" => "job2"})
+job3 = Job.new({"name" => "job3"})
+
+RSpec.describe [job0, job1, job2, job3] do
+  it { is_expected.to include_job "job0" }
+  it { is_expected.to_not include_job "jobX" }
   it { is_expected.to include_job("job0").and_be_before_job("job1") }
   it { is_expected.to include_job("job0").and_be_before_jobs("job1", "job2", "job3") }
   it { is_expected.to include_job("job1").and_be_after_job("job0").and_be_before_job("job2") }

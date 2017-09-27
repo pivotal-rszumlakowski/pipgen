@@ -10,21 +10,25 @@ end
 
 EMPTY_JOB = {}
 
-def mkget(name, *passed_job_names)
+def mkget name, *passed_job_names
 	hash = {"get" => name}
 	hash["passed"] = passed_job_names unless passed_job_names.nil? or passed_job_names.empty?
 	return hash
 end
 
-def mkput(name)
+def mkput name
 	{"put" => name}
 end
 
-def mkaggregate(*gets)
+def mkresource name
+	{"name" => name }
+end
+
+def mkaggregate *gets
 	{"aggregate" => gets}
 end
 
-def mkjob(name = "my_job_name", *items)
+def mkjob name = "my_job_name", *items
 	hash = {"name" => name}
 	hash["plan"] = items unless items.nil? or items.empty?
 	Job.new(hash)

@@ -9,7 +9,7 @@ class Dag
 
 		attr_reader :name, :job, :depends_on, :is_dependency_for
 
-		def initialize(j)
+		def initialize j
 			raise "Must provide a job!" unless j.is_a? Job
 			@job = j
 			@name = j.name
@@ -17,11 +17,11 @@ class Dag
 			@is_dependency_for = []
 		end
 
-		def add_dependency(dependency)
+		def add_dependency dependency
 			@depends_on << dependency
 		end
 
-		def add_is_dependency_for(dependency)
+		def add_is_dependency_for dependency
 			@is_dependency_for << dependency
 		end
 
@@ -29,7 +29,7 @@ class Dag
 			@name
 		end
 
-		def self.list_to_s(nodes)
+		def self.list_to_s nodes
 			"[" + nodes.map{ |n| n.name }.join(", ") + "]"
 		end
 	end
@@ -38,7 +38,7 @@ class Dag
 
 		attr_reader :from, :to
 
-		def initialize(from, to)
+		def initialize from, to
 			raise "from must be a Node" unless from.is_a? Node
 			raise "to must be a Node" unless to.is_a? Node
 			@from = from
@@ -49,7 +49,7 @@ class Dag
 			"#{from.name}->#{to.name}"
 		end
 
-		def self.list_to_s(edges)
+		def self.list_to_s edges
 			"[" + edges.map{ |e| e.to_s }.join(", ") + "]"
 		end
 	end
@@ -58,11 +58,11 @@ class Dag
 		@nodes = []
 	end
 
-	def each(&block) # Implements Enumerable
-		@nodes.each(&block)
+	def each &block # Implements Enumerable
+		@nodes.each &block
 	end
 
-	def <<(node)
+	def << node
 		@nodes << node
 	end
 
@@ -100,7 +100,7 @@ class Dag
 	def topological_sort
 
 		# If there's only one node, then there's no more work to do.
-		return [@nodes.first.name] if @nodes.count == 1
+		return [@nodes.first] if @nodes.count == 1
 
 		# First, collect all the nodes that have no dependencies.
 		nodes_with_no_dependencies = @nodes.select { |node| node.depends_on.empty? }
@@ -122,10 +122,14 @@ class Dag
 
 		#puts "### Read nodes: #{sorted_node_names}"
 
-		return sorted_node_names
+		return map_nodes(sorted_node_names)
 	end
 
 	private
+
+	def map_nodes job_names
+		 job_names.map{|job_name| @nodes.find {|n| n.name == job_name}}
+	end
 
 	def get_edges nodes
 		edges = []
